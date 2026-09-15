@@ -210,7 +210,7 @@ elif menu == "💰 Calculadora de Preços":
 # ================= TELA 5: COTAÇÃO / ORÇAMENTO PROFISSIONAL =================
 elif menu == "📄 Cotação / Orçamento":
     st.title("Emissão de Cotação e Orçamento Profissional")
-    st.write("Preencha os dados do cliente, adicione as peças e gere um PDF completo nos moldes comerciais.")
+    st.write("Preencha os dados do cliente, adicione as peças e gere um PDF moderno e elegante.")
 
     st.subheader("1. Dados do Cliente e Logística")
     col_c1, col_c2, col_c3 = st.columns(3)
@@ -269,50 +269,104 @@ elif menu == "📄 Cotação / Orçamento":
             st.session_state["itens_orcamento"] = []
             st.rerun()
 
-        if col_b2.button("📥 Gerar PDF da Cotação Oficial", type="primary"):
+        if col_b2.button("📥 Gerar PDF Moderno da Cotação", type="primary"):
             pdf = FPDF()
             pdf.add_page()
             
-            # Cabeçalho da Empresa
-            pdf.set_font("Arial", "B", 14)
-            pdf.cell(0, 7, "VIRTUAR COMPRESSORES E PECAS", 0, 1, "C")
-            pdf.set_font("Arial", "", 9)
-            pdf.cell(0, 5, "Pecas para Compressores e Lavadoras - www.VirtuArCompressores.com.br", 0, 1, "C")
-            pdf.ln(5)
+            # --- CABEÇALHO MODERNO COM LOGO ---
+            logo_path = BASE_DIR / "logo.png"
+            if logo_path.exists():
+                # Insere a logo no topo esquerdo (X=10, Y=10, Largura=35)
+                pdf.image(str(logo_path), x=10, y=10, w=35)
+                
+            # Dados da empresa no topo direito
+            pdf.set_xy(50, 10)
+            pdf.set_font("Arial", "B", 13)
+            pdf.set_text_color(20, 50, 120)  # Azul corporativo moderno
+            pdf.cell(150, 6, "VIRTUAR COMPRESSORES E PECAS", 0, 1, "R")
             
-            # Título do Documento
-            pdf.set_font("Arial", "B", 11)
-            pdf.set_fill_color(230, 230, 230)
-            pdf.cell(0, 6, f"COTACAO DE VENDA / ORCAMENTO", 1, 1, "C", True)
-            pdf.ln(3)
+            pdf.set_x(50)
+            pdf.set_font("Arial", "", 8)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(150, 4, "Rua Manoel Teixeira de Camargos, n 90 - Loja 1 - Bairro Gloria - Contagem/MG", 0, 1, "R")
+            pdf.set_x(50)
+            pdf.cell(150, 4, "Tel: (31) 2888-0533 / (31) 98288-1653 | www.VirtuArCompressores.com.br", 0, 1, "R")
             
-            # Dados do Cliente
+            # Linha divisória elegante
+            pdf.set_draw_color(30, 90, 160)
+            pdf.set_line_width(0.8)
+            pdf.line(10, 28, 200, 28)
+            
+            pdf.ln(8)
+            
+            # --- BLOCO DE TÍTULO DA COTAÇÃO ---
+            pdf.set_fill_color(30, 90, 160) # Fundo azul moderno
+            pdf.set_text_color(255, 255, 255) # Texto branco
+            pdf.set_font("Arial", "B", 10)
+            pdf.cell(190, 7, "  COTACAO DE VENDA / ORCAMENTO", 1, 1, "L", True)
+            
+            # --- BLOCO DE DADOS DO CLIENTE E LOGÍSTICA ---
+            pdf.set_fill_color(245, 247, 250) # Fundo cinza claro moderno
+            pdf.set_text_color(30, 30, 30)
+            pdf.set_font("Arial", "", 8.5)
+            
+            # Caixa estilizada para os dados
+            y_inicio = pdf.get_y()
+            pdf.rect(10, y_inicio, 190, 25, "F")
+            
+            pdf.set_xy(12, y_inicio + 2)
+            pdf.cell(95, 5, f"Cliente: {nome_cliente}", 0, 0)
+            pdf.cell(95, 5, f"CPF/CNPJ: {cnpj_cliente}", 0, 1)
+            
+            pdf.set_x(12)
+            pdf.cell(95, 5, f"Endereco: {end_cliente} - {cid_cliente} - CEP: {cep_cliente}", 0, 0)
+            pdf.cell(95, 5, f"Telefone: {tel_cliente}", 0, 1)
+            
+            pdf.set_x(12)
+            pdf.cell(95, 5, f"Transportadora: {transportadora}", 0, 0)
+            pdf.cell(95, 5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
+            
+            pdf.set_x(12)
+            pdf.cell(95, 5, f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 0)
+            pdf.cell(95, 5, f"Vendedor: {vendedor}", 0, 1)
+            
+            pdf.ln(8)
+            
+            # --- TABELA DE PRODUTOS ---
+            # Cabeçalho da Tabela
+            pdf.set_fill_color(40, 40, 40) # Cinza escuro elegante
+            pdf.set_text_color(255, 255, 255)
             pdf.set_font("Arial", "B", 9)
-            pdf.cell(0, 5, f"Cliente: {nome_cliente}    |    CPF/CNPJ: {cnpj_cliente}", 0, 1)
-            pdf.cell(0, 5, f"Endereco: {end_cliente} - {cid_cliente} - CEP: {cep_cliente}", 0, 1)
-            pdf.cell(0, 5, f"Telefone: {tel_cliente}", 0, 1)
-            pdf.cell(0, 5, f"Transportadora: {transportadora}    |    Cond. Pagto: {cond_pagamento}", 0, 1)
-            pdf.cell(0, 5, f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}    |    Vendedor: {vendedor}", 0, 1)
-            pdf.ln(5)
+            pdf.cell(100, 7, "  Descricao do Item", 0, 0, "L", True)
+            pdf.cell(20, 7, "Qtd", 0, 0, "C", True)
+            pdf.cell(35, 7, "Preco Unit.", 0, 0, "R", True)
+            pdf.cell(35, 7, "Total  ", 0, 1, "R", True)
             
-            # Tabela de Produtos
-            pdf.set_fill_color(200, 220, 255)
-            pdf.set_font("Arial", "B", 9)
-            pdf.cell(95, 7, "Descricao do Item", 1, 0, "L", True)
-            pdf.cell(20, 7, "Qtd", 1, 0, "C", True)
-            pdf.cell(35, 7, "Preco Unit.", 1, 0, "R", True)
-            pdf.cell(40, 7, "Total", 1, 1, "R", True)
+            # Linhas dos Itens
+            pdf.set_font("Arial", "", 8.5)
+            pdf.set_text_color(40, 40, 40)
             
-            pdf.set_font("Arial", "", 9)
+            preencher = False
             for item in st.session_state["itens_orcamento"]:
-                pdf.cell(95, 6, str(item["produto"][:48]), 1, 0, "L")
-                pdf.cell(20, 6, str(item["quantidade"]), 1, 0, "C")
-                pdf.cell(35, 6, f"R$ {item['preco_unitario']:.2f}", 1, 0, "R")
-                pdf.cell(40, 6, f"R$ {item['total']:.2f}", 1, 1, "R")
+                # Alterna cor de fundo das linhas para facilitar a leitura (estilo moderno)
+                if preencher:
+                    pdf.set_fill_color(248, 249, 250)
+                else:
+                    pdf.set_fill_color(255, 255, 255)
+                    
+                pdf.cell(100, 6, f"  {str(item['produto'][:48])}", 1, 0, "L", True)
+                pdf.cell(20, 6, str(item["quantidade"]), 1, 0, "C", True)
+                pdf.cell(35, 6, f"R$ {item['preco_unitario']:.2f} ", 1, 0, "R", True)
+                pdf.cell(35, 6, f"R$ {item['total']:.2f} ", 1, 1, "R", True)
+                preencher = not preencher
                 
             pdf.ln(4)
+            
+            # --- RODAPÉ DE VALOR TOTAL ---
+            pdf.set_fill_color(235, 240, 245)
             pdf.set_font("Arial", "B", 11)
-            pdf.cell(0, 8, f"VALOR TOTAL GERAL: R$ {total_geral:.2f}", 0, 1, "R")
+            pdf.set_text_color(20, 50, 120)
+            pdf.cell(190, 9, f"VALOR TOTAL GERAL: R$ {total_geral:,.2f}   ", 1, 1, "R", True)
             
             # Salva PDF Temporário
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
@@ -321,7 +375,7 @@ elif menu == "📄 Cotação / Orçamento":
                     bytes_pdf = f_pdf.read()
                     
             st.download_button(
-                label="📥 Baixar PDF Oficial Pronto para WhatsApp",
+                label="📥 Baixar PDF Moderno Oficial para WhatsApp",
                 data=bytes_pdf,
                 file_name=f"Cotacao_{nome_cliente.replace(' ', '_')}.pdf",
                 mime="application/pdf",
