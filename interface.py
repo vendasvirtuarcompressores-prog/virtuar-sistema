@@ -210,9 +210,14 @@ elif menu == "💰 Calculadora de Preços":
 # ================= TELA 5: COTAÇÃO / ORÇAMENTO PROFISSIONAL =================
 elif menu == "📄 Cotação / Orçamento":
     st.title("Emissão de Cotação e Orçamento Profissional")
-    st.write("Preencha os dados do cliente, adicione as peças e gere um PDF moderno e elegante.")
+    st.write("Preencha os dados do cliente, número de ordem de compra e gere o PDF formato A4.")
 
-    st.subheader("1. Dados do Cliente e Logística")
+    st.subheader("1. Dados da Cotação e Ordem de Compra")
+    col_num1, col_num2 = st.columns(2)
+    num_cotacao = col_num1.text_input("🔢 Número da Cotação / Orçamento", f"COT-{datetime.now().strftime('%Y%m%d')}-01")
+    num_oc = col_num2.text_input("📋 N° da Ordem de Compra (Cliente - Opcional)", "")
+
+    st.subheader("2. Dados do Cliente e Logística")
     col_c1, col_c2, col_c3 = st.columns(3)
     nome_cliente = col_c1.text_input("👤 Nome / Razão Social", "Cliente Balcão")
     cnpj_cliente = col_c2.text_input("📄 CPF / CNPJ", "00.000.000/0001-00")
@@ -229,7 +234,7 @@ elif menu == "📄 Cotação / Orçamento":
     vendedor = col_l3.text_input("👔 Vendedor Responsável", "VirtuAr Compressores")
 
     st.divider()
-    st.subheader("2. Adicionar Produtos ao Orçamento")
+    st.subheader("3. Adicionar Produtos ao Orçamento")
     
     conn = get_connection()
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
@@ -269,20 +274,18 @@ elif menu == "📄 Cotação / Orçamento":
             st.session_state["itens_orcamento"] = []
             st.rerun()
 
-        if col_b2.button("📥 Gerar PDF Moderno da Cotação", type="primary"):
+        if col_b2.button("📥 Gerar PDF Formato A4 Oficial", type="primary"):
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO MODERNO CENTRALIZADO COM LOGO SEM BORDA ---
+            # --- CABEÇALHO CENTRALIZADO COM LOGO SEM BORDA ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
-                # Logo posicionada à esquerda, tamanho limpo
                 pdf.image(str(logo_path), x=10, y=10, w=32)
                 
-            # Centralizado no topo (Nome da Empresa e Endereço)
             pdf.set_y(10)
             pdf.set_font("Arial", "B", 14)
-            pdf.set_text_color(20, 50, 120)  # Azul corporativo
+            pdf.set_text_color(20, 50, 120)
             pdf.cell(0, 6, "VIRTUAR COMPRESSORES", 0, 1, "C")
             
             pdf.set_font("Arial", "", 8)
@@ -290,26 +293,24 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.cell(0, 4, "Rua Manoel Teixeira de Camargos, n 90 - Loja 1 - Bairro Gloria - Contagem/MG", 0, 1, "C")
             pdf.cell(0, 4, "Tel: (31) 2888-0533 / (31) 98288-1653", 0, 1, "C")
             
-            # Site pintado de azul no centro
             pdf.set_font("Arial", "B", 8)
-            pdf.set_text_color(20, 90, 180) # Azul idêntico ao site
+            pdf.set_text_color(20, 90, 180)
             pdf.cell(0, 4, "www.VirtuArCompressores.com.br", 0, 1, "C")
             
-            # Linha divisória elegante
             pdf.set_draw_color(30, 90, 160)
             pdf.set_line_width(0.8)
             pdf.line(10, 32, 200, 32)
             
             pdf.ln(8)
             
-            # --- BLOCO DE TÍTULO DA COTAÇÃO ---
-            pdf.set_fill_color(30, 90, 160) # Fundo azul moderno
-            pdf.set_text_color(255, 255, 255) # Texto branco
+            # --- TÍTULO E NÚMEROS DA COTAÇÃO / OC ---
+            pdf.set_fill_color(30, 90, 160)
+            pdf.set_text_color(255, 255, 255)
             pdf.set_font("Arial", "B", 10)
-            pdf.cell(190, 7, "  COTACAO DE VENDA / ORCAMENTO", 1, 1, "L", True)
+            pdf.cell(190, 7, f"  COTACAO / ORCAMENTO: {num_cotacao}    |    ORDEM DE COMPRA (OC): {num_oc if num_oc else 'N/I'}", 1, 1, "L", True)
             
-            # --- BLOCO DE DADOS DO CLIENTE E LOGÍSTICA ---
-            pdf.set_fill_color(245, 247, 250) # Fundo cinza claro moderno
+            # --- DADOS DO CLIENTE E LOGÍSTICA ---
+            pdf.set_fill_color(245, 247, 250)
             pdf.set_text_color(30, 30, 30)
             pdf.set_font("Arial", "", 8.5)
             
@@ -332,10 +333,9 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.cell(95, 5, f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}", 0, 0)
             pdf.cell(95, 5, f"Vendedor: {vendedor}", 0, 1)
             
-            pdf.ln(8)
+            pdf.ln(10)
             
             # --- TABELA DE PRODUTOS ---
-            # Cabeçalho da Tabela com Azul Claro/Escuro Moderno
             pdf.set_fill_color(30, 90, 160)
             pdf.set_text_color(255, 255, 255)
             pdf.set_font("Arial", "B", 9)
@@ -344,9 +344,7 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.cell(35, 7, "Preco Unit.", 0, 0, "R", True)
             pdf.cell(35, 7, "Total  ", 0, 1, "R", True)
             
-            # Linhas dos Itens (Descrição em azul claro conforme solicitado)
             pdf.set_font("Arial", "", 8.5)
-            
             preencher = False
             for item in st.session_state["itens_orcamento"]:
                 if preencher:
@@ -354,20 +352,19 @@ elif menu == "📄 Cotação / Orçamento":
                 else:
                     pdf.set_fill_color(255, 255, 255)
                     
-                # Texto da descrição em azul (RGB: 20, 90, 180)
                 pdf.set_text_color(20, 90, 180)
                 pdf.cell(100, 6, f"  {str(item['produto'][:48])}", 1, 0, "L", True)
                 
-                # Qtd, Preço e Total em cinza/preto normal para leitura clara
                 pdf.set_text_color(40, 40, 40)
                 pdf.cell(20, 6, str(item["quantidade"]), 1, 0, "C", True)
                 pdf.cell(35, 6, f"R$ {item['preco_unitario']:.2f} ", 1, 0, "R", True)
                 pdf.cell(35, 6, f"R$ {item['total']:.2f} ", 1, 1, "R", True)
                 preencher = not preencher
                 
-            pdf.ln(4)
+            # --- RODAPÉ DE VALOR TOTAL POSICIONADO NO FIM DA PÁGINA A4 ---
+            # Posicionamento exato próximo ao final da folha A4 (Y=265)
+            pdf.set_y(265)
             
-            # --- RODAPÉ DE VALOR TOTAL ---
             pdf.set_fill_color(235, 240, 245)
             pdf.set_font("Arial", "B", 11)
             pdf.set_text_color(20, 50, 120)
@@ -380,9 +377,9 @@ elif menu == "📄 Cotação / Orçamento":
                     bytes_pdf = f_pdf.read()
                     
             st.download_button(
-                label="📥 Baixar PDF Moderno Oficial para WhatsApp",
+                label="📥 Baixar PDF A4 Oficial com Nº de Ordem de Compra",
                 data=bytes_pdf,
-                file_name=f"Cotacao_{nome_cliente.replace(' ', '_')}.pdf",
+                file_name=f"Orcamento_{num_cotacao}.pdf",
                 mime="application/pdf",
                 type="primary"
             )
