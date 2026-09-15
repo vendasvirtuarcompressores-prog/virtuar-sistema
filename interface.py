@@ -14,8 +14,17 @@ DB_PATH = BASE_DIR / "compras_nfe.db"
 def get_connection():
     return sqlite3.connect(DB_PATH)
 
-st.sidebar.title("📦 VirtuAr Sistema")
+# ================= MENU LATERAL COM LOGO E SESSÃO =================
+st.sidebar.image("logo.png", use_container_width=True) # Exibe a logo da VirtuAr
 st.sidebar.markdown("---")
+
+# Usuário padrão já logado automaticamente para a empresa
+if "usuario_logado" not in st.session_state:
+    st.session_state["usuario_logado"] = "VirtuAr (Equipe)"
+
+st.sidebar.success(f"👤 Conectado como: **{st.session_state['usuario_logado']}**")
+st.sidebar.markdown("---")
+
 menu = st.sidebar.radio(
     "Navegação", 
     [
@@ -26,6 +35,7 @@ menu = st.sidebar.radio(
     ]
 )
 
+# ================= TELA 1: DASHBOARD =================
 if menu == "📊 Dashboard Inicial":
     st.title("Dashboard de Compras")
     st.write("Resumo geral das notas fiscais e custos da empresa.")
@@ -61,6 +71,7 @@ if menu == "📊 Dashboard Inicial":
     st.dataframe(df_ultimas, use_container_width=True, hide_index=True)
     conn.close()
 
+# ================= TELA 2: CONSULTAS =================
 elif menu == "🔍 Consultas e Filtros":
     st.title("Consulta de Peças e Preços")
     conn = get_connection()
@@ -104,6 +115,7 @@ elif menu == "🔍 Consultas e Filtros":
     else:
         st.warning("Nenhum registro encontrado.")
 
+# ================= TELA 3: UPLOAD =================
 elif menu == "📤 Upload de XML":
     st.title("Importar Novas Notas Fiscais")
     st.write("Arraste os arquivos XML para adicionar compras ao banco de dados.")
@@ -123,7 +135,7 @@ elif menu == "📤 Upload de XML":
                 barra.progress((idx + 1) / len(arquivos))
             st.success(f"✅ Sucesso! {sucessos} nota(s) importada(s) para o banco.")
 
-# ================= TELA 4: CALCULADORA IDÊNTICA À PLANILHA =================
+# ================= TELA 4: CALCULADORA =================
 elif menu == "💰 Calculadora de Preços":
     st.title("Calculadora de Preços (Espelho da Planilha)")
     st.write("Cálculo exato de Markup Reverso considerando comissões, impostos e custos de frete por peso.")
@@ -154,7 +166,6 @@ elif menu == "💰 Calculadora de Preços":
     
     tipo_anuncio = col_t1.selectbox("Tipo de Anúncio", ["PREMIUM", "CLASSICO", "SHOPPE", "LOJA"])
     
-    # Valores padrão exatos da sua planilha
     if tipo_anuncio == "PREMIUM":
         comissao_padrao, frete_tab_padrao, frete_sup_padrao = 21.11, 7.95, 13.25
     elif tipo_anuncio == "CLASSICO":
@@ -175,7 +186,6 @@ elif menu == "💰 Calculadora de Preços":
     custo_flex = col_f3.number_input("Flex (Motoboy)", min_value=0.0, value=12.99, step=0.5)
 
     if st.button("Calcular Preços Exatos", type="primary"):
-        # Fórmula de Markup Reverso idêntica à planilha: Divisor = 1 - (Comissão + Imposto + Margem)
         soma_percentuais = (taxa_comissao + imposto_governo + margem_liquida) / 100
         
         if soma_percentuais >= 1:
@@ -185,7 +195,6 @@ elif menu == "💰 Calculadora de Preços":
         else:
             divisor = 1 - soma_percentuais
             
-            # Os 3 preços seguindo a regra da planilha
             preco_sem_frete = (custo_produto + super_frete) / divisor
             preco_com_frete = (custo_produto + frete_tabela) / divisor
             preco_flex = (custo_produto + custo_flex) / divisor
