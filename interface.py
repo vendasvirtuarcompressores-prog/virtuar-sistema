@@ -210,7 +210,7 @@ elif menu == "💰 Calculadora de Preços":
 # ================= TELA 5: COTAÇÃO / ORÇAMENTO PROFISSIONAL =================
 elif menu == "📄 Cotação / Orçamento":
     st.title("Emissão de Cotação e Orçamento Profissional")
-    st.write("Preencha os dados do cliente, número de ordem de compra e gere o PDF formato A4.")
+    st.write("Preencha os dados do cliente, número de ordem de compra e gere o PDF no padrão ERP.")
 
     st.subheader("1. Dados da Cotação e Ordem de Compra")
     col_num1, col_num2 = st.columns(2)
@@ -274,7 +274,7 @@ elif menu == "📄 Cotação / Orçamento":
             st.session_state["itens_orcamento"] = []
             st.rerun()
 
-        if col_b2.button("📥 Gerar PDF Formato A4 Oficial", type="primary"):
+        if col_b2.button("📥 Gerar PDF Padrão ERP Oficial", type="primary"):
             pdf = FPDF()
             pdf.add_page()
             
@@ -361,14 +361,15 @@ elif menu == "📄 Cotação / Orçamento":
                 pdf.cell(35, 6, f"R$ {item['total']:.2f} ", 1, 1, "R", True)
                 preencher = not preencher
                 
-            # --- RODAPÉ DE VALOR TOTAL POSICIONADO NO FIM DA PÁGINA A4 ---
-            # Posicionamento exato próximo ao final da folha A4 (Y=265)
-            pdf.set_y(265)
+            pdf.ln(5)
             
+            # --- BLOCO DE VALOR TOTAL LOGO ABAIXO DOS ITENS (ESTILO ERP) ---
+            y_totais = pdf.get_y()
+            pdf.set_xy(110, y_totais)
             pdf.set_fill_color(235, 240, 245)
-            pdf.set_font("Arial", "B", 11)
+            pdf.set_font("Arial", "B", 10)
             pdf.set_text_color(20, 50, 120)
-            pdf.cell(190, 9, f"VALOR TOTAL GERAL: R$ {total_geral:,.2f}   ", 1, 1, "R", True)
+            pdf.cell(90, 8, f"VALOR TOTAL GERAL: R$ {total_geral:,.2f}   ", 1, 1, "R", True)
             
             # Salva PDF Temporário
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
@@ -377,7 +378,7 @@ elif menu == "📄 Cotação / Orçamento":
                     bytes_pdf = f_pdf.read()
                     
             st.download_button(
-                label="📥 Baixar PDF A4 Oficial com Nº de Ordem de Compra",
+                label="📥 Baixar PDF Padrão ERP Oficial",
                 data=bytes_pdf,
                 file_name=f"Orcamento_{num_cotacao}.pdf",
                 mime="application/pdf",
