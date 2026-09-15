@@ -273,29 +273,32 @@ elif menu == "📄 Cotação / Orçamento":
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO MODERNO COM LOGO ---
+            # --- CABEÇALHO MODERNO CENTRALIZADO COM LOGO SEM BORDA ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
-                # Insere a logo no topo esquerdo (X=10, Y=10, Largura=35)
-                pdf.image(str(logo_path), x=10, y=10, w=35)
+                # Logo posicionada à esquerda, tamanho limpo
+                pdf.image(str(logo_path), x=10, y=10, w=32)
                 
-            # Dados da empresa no topo direito
-            pdf.set_xy(50, 10)
-            pdf.set_font("Arial", "B", 13)
-            pdf.set_text_color(20, 50, 120)  # Azul corporativo moderno
-            pdf.cell(150, 6, "VIRTUAR COMPRESSORES E PECAS", 0, 1, "R")
+            # Centralizado no topo (Nome da Empresa e Endereço)
+            pdf.set_y(10)
+            pdf.set_font("Arial", "B", 14)
+            pdf.set_text_color(20, 50, 120)  # Azul corporativo
+            pdf.cell(0, 6, "VIRTUAR COMPRESSORES", 0, 1, "C")
             
-            pdf.set_x(50)
             pdf.set_font("Arial", "", 8)
-            pdf.set_text_color(80, 80, 80)
-            pdf.cell(150, 4, "Rua Manoel Teixeira de Camargos, n 90 - Loja 1 - Bairro Gloria - Contagem/MG", 0, 1, "R")
-            pdf.set_x(50)
-            pdf.cell(150, 4, "Tel: (31) 2888-0533 / (31) 98288-1653 | www.VirtuArCompressores.com.br", 0, 1, "R")
+            pdf.set_text_color(90, 90, 90)
+            pdf.cell(0, 4, "Rua Manoel Teixeira de Camargos, n 90 - Loja 1 - Bairro Gloria - Contagem/MG", 0, 1, "C")
+            pdf.cell(0, 4, "Tel: (31) 2888-0533 / (31) 98288-1653", 0, 1, "C")
+            
+            # Site pintado de azul no centro
+            pdf.set_font("Arial", "B", 8)
+            pdf.set_text_color(20, 90, 180) # Azul idêntico ao site
+            pdf.cell(0, 4, "www.VirtuArCompressores.com.br", 0, 1, "C")
             
             # Linha divisória elegante
             pdf.set_draw_color(30, 90, 160)
             pdf.set_line_width(0.8)
-            pdf.line(10, 28, 200, 28)
+            pdf.line(10, 32, 200, 32)
             
             pdf.ln(8)
             
@@ -310,7 +313,6 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_text_color(30, 30, 30)
             pdf.set_font("Arial", "", 8.5)
             
-            # Caixa estilizada para os dados
             y_inicio = pdf.get_y()
             pdf.rect(10, y_inicio, 190, 25, "F")
             
@@ -333,8 +335,8 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.ln(8)
             
             # --- TABELA DE PRODUTOS ---
-            # Cabeçalho da Tabela
-            pdf.set_fill_color(40, 40, 40) # Cinza escuro elegante
+            # Cabeçalho da Tabela com Azul Claro/Escuro Moderno
+            pdf.set_fill_color(30, 90, 160)
             pdf.set_text_color(255, 255, 255)
             pdf.set_font("Arial", "B", 9)
             pdf.cell(100, 7, "  Descricao do Item", 0, 0, "L", True)
@@ -342,19 +344,22 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.cell(35, 7, "Preco Unit.", 0, 0, "R", True)
             pdf.cell(35, 7, "Total  ", 0, 1, "R", True)
             
-            # Linhas dos Itens
+            # Linhas dos Itens (Descrição em azul claro conforme solicitado)
             pdf.set_font("Arial", "", 8.5)
-            pdf.set_text_color(40, 40, 40)
             
             preencher = False
             for item in st.session_state["itens_orcamento"]:
-                # Alterna cor de fundo das linhas para facilitar a leitura (estilo moderno)
                 if preencher:
                     pdf.set_fill_color(248, 249, 250)
                 else:
                     pdf.set_fill_color(255, 255, 255)
                     
+                # Texto da descrição em azul (RGB: 20, 90, 180)
+                pdf.set_text_color(20, 90, 180)
                 pdf.cell(100, 6, f"  {str(item['produto'][:48])}", 1, 0, "L", True)
+                
+                # Qtd, Preço e Total em cinza/preto normal para leitura clara
+                pdf.set_text_color(40, 40, 40)
                 pdf.cell(20, 6, str(item["quantidade"]), 1, 0, "C", True)
                 pdf.cell(35, 6, f"R$ {item['preco_unitario']:.2f} ", 1, 0, "R", True)
                 pdf.cell(35, 6, f"R$ {item['total']:.2f} ", 1, 1, "R", True)
