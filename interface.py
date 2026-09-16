@@ -263,7 +263,7 @@ elif menu == "💰 Calculadora de Preços":
     else:
         comissao_padrao, custo_fixo_padrao = 21.39, 0.50
 
-    # Tabela oficial sincronizada com a planilha para produtos abaixo de R$ 79,00
+    # Tabela de frete exata espelhada da planilha para produtos abaixo de R$ 79,00
     if peso_produto <= 0.3:
         frete_tabela_calculado = 6.55
     elif peso_produto <= 0.5:
@@ -337,6 +337,8 @@ elif menu == "💰 Calculadora de Preços":
             st.warning("Insira um custo válido.")
         else:
             divisor = 1 - soma_percentuais
+            
+            # Cálculo exato espelhando a planilha oficial da VirtuAr
             preco_sem_frete = (custo_produto + custo_fixo_sem_frete) / divisor
             preco_com_frete = (custo_produto + custo_frete_gratis) / divisor
             preco_flex = (custo_produto + custo_flex) / divisor
