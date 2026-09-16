@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 import tempfile
+import html
 from fpdf import FPDF
 
 from criar_banco import processar_xml, salvar_no_banco
@@ -112,6 +113,8 @@ elif menu == "🔍 Consultas e Filtros":
 
     st.write(f"**Resultados encontrados:** {len(df)}")
     if not df.empty:
+        df["Produto"] = df["Produto"].apply(html.unescape)
+        
         if termo_pesquisa:
             menor_preco = df["Preço Un. (R$)"].min()
             st.success(f"💡 O menor preço encontrado nesta busca foi **R$ {menor_preco:.2f}**")
@@ -146,6 +149,8 @@ elif menu == "💰 Calculadora de Preços":
 
     conn = get_connection()
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
+    
+    df_produtos["descricao"] = df_produtos["descricao"].apply(html.unescape)
     lista_produtos = ["Digitar valor manualmente..."] + df_produtos["descricao"].tolist()
     
     st.subheader("1. Produto e Custo")
@@ -154,29 +159,36 @@ elif menu == "💰 Calculadora de Preços":
     custo_sugerido = 0.0
     if produto_selecionado != "Digitar valor manualmente...":
         cursor = conn.cursor()
-        cursor.execute("SELECT MIN(valor_unitario) FROM itens_nota WHERE descricao = ?", (produto_selecionado,))
+        # ✨ BUSCA O ÚLTIMO VALOR DE COMPRA (MAIS RECENTE) PELA DATA DA NOTA
+        cursor.execute("""
+            SELECT i.valor_unitario 
+            FROM itens_nota i
+            JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
+            WHERE i.descricao = ? OR i.descricao = ?
+            ORDER BY n.data_emissao DESC LIMIT 1
+        """, (produto_selecionado, html.escape(produto_selecionado)))
         resultado = cursor.fetchone()
         if resultado and resultado[0]:
             custo_sugerido = resultado[0]
-            st.info(f"💡 Menor custo registrado: **R$ {custo_sugerido:.2f}**")
+            st.info(f"💡 Último custo de compra (mais atual): **R$ {custo_sugerido:.2f}**")
     conn.close()
 
     col_c1, col_c2 = st.columns(2)
     custo_produto = col_c1.number_input("Custo da Peça (R$)", min_value=0.0, value=float(custo_sugerido), step=1.0)
-    peso_produto = col_c2.number_input("Peso (kg)", min_value=0.0, value=1.0, step=0.1)
+    peso_produto = col_c2.number_input("Peso (kg) - *Apenas ref. base*", min_value=0.0, value=1.0, step=0.1)
 
     st.subheader("2. Taxas e Parâmetros (%)")
     col_t1, col_t2, col_t3 = st.columns(3)
     tipo_anuncio = col_t1.selectbox("Tipo de Anúncio", ["PREMIUM", "CLASSICO", "SHOPPE", "LOJA"])
     
     if tipo_anuncio == "PREMIUM":
-        comissao_padrao, frete_tab_padrao, frete_sup_padrao = 21.11, 7.95, 13.25
+        comissao_padrao, custo_fixo_padrao, frete_tabela_padrao = 21.11, 7.95, 13.25
     elif tipo_anuncio == "CLASSICO":
-        comissao_padrao, frete_tab_padrao, frete_sup_padrao = 16.11, 7.95, 13.25
+        comissao_padrao, custo_fixo_padrao, frete_tabela_padrao = 16.11, 7.95, 13.25
     elif tipo_anuncio == "SHOPPE":
-        comissao_padrao, frete_tab_padrao, frete_sup_padrao = 23.50, 5.00, 5.00
+        comissao_padrao, custo_fixo_padrao, frete_tabela_padrao = 23.50, 5.00, 5.00
     else:
-        comissao_padrao, frete_tab_padrao, frete_sup_padrao = 21.39, 0.50, 0.50
+        comissao_padrao, custo_fixo_padrao, frete_tabela_padrao = 21.39, 0.50, 0.50
 
     taxa_comissao = col_t1.number_input("Taxa de Comissão (%)", min_value=0.0, value=float(comissao_padrao), step=0.01)
     imposto_governo = col_t2.number_input("Imposto Governo (%)", min_value=0.0, value=10.0, step=0.1)
@@ -184,9 +196,9 @@ elif menu == "💰 Calculadora de Preços":
 
     st.subheader("3. Custos de Frete (R$)")
     col_f1, col_f2, col_f3 = st.columns(3)
-    frete_tabela = col_f1.number_input("Frete Tabela (> R$79)", min_value=0.0, value=float(frete_tab_padrao), step=0.5)
-    super_frete = col_f2.number_input("Super Frete (< R$79)", min_value=0.0, value=float(frete_sup_padrao), step=0.5)
-    custo_flex = col_f3.number_input("Flex (Motoboy)", min_value=0.0, value=12.99, step=0.5)
+    custo_fixo_sem_frete = col_f1.number_input("Custo Fixo (S/ Frete Grátis)", min_value=0.0, value=float(custo_fixo_padrao), step=0.5)
+    custo_frete_gratis = col_f2.number_input("Frete Tabela (C/ Frete Grátis)", min_value=0.0, value=float(frete_tabela_padrao), step=0.5)
+    custo_flex = col_f3.number_input("Custo Flex (Motoboy)", min_value=0.0, value=12.99, step=0.5)
 
     if st.button("Calcular Preços Exatos", type="primary"):
         soma_percentuais = (taxa_comissao + imposto_governo + margem_liquida) / 100
@@ -196,8 +208,9 @@ elif menu == "💰 Calculadora de Preços":
             st.warning("Insira um custo válido.")
         else:
             divisor = 1 - soma_percentuais
-            preco_sem_frete = (custo_produto + super_frete) / divisor
-            preco_com_frete = (custo_produto + frete_tabela) / divisor
+            
+            preco_sem_frete = (custo_produto + custo_fixo_sem_frete) / divisor
+            preco_com_frete = (custo_produto + custo_frete_gratis) / divisor
             preco_flex = (custo_produto + custo_flex) / divisor
             
             st.markdown("---")
@@ -228,45 +241,64 @@ elif menu == "📄 Cotação / Orçamento":
     cid_cliente = col_e2.text_input("🏙️ Cidade / UF", "Contagem - MG")
     cep_cliente = col_e3.text_input("📮 CEP", "32000-000")
 
-    col_l1, col_l2, col_l3 = st.columns(3)
+    col_l1, col_l2, col_l3, col_l4 = st.columns(4)
     transportadora = col_l1.text_input("🚚 Transportadora", "Correios / Retirada")
-    cond_pagamento = col_l2.selectbox("💳 Condição de Pagamento", ["À vista", "Boleto Bancário", "PIX", "Cartão de Crédito", "25/50/75/100"])
-    vendedor = col_l3.text_input("👔 Vendedor Responsável", "VirtuAr Compressores")
+    peso_total_orc = col_l2.text_input("⚖️ Peso Total", "1 kg")
+    cond_pagamento = col_l3.selectbox("💳 Cond. Pagamento", ["À vista", "Boleto Bancário", "PIX", "Cartão de Crédito", "25/50/75/100"])
+    vendedor = col_l4.text_input("👔 Vendedor Responsável", "VirtuAr Compressores")
 
     st.divider()
     st.subheader("3. Adicionar Produtos ao Orçamento")
     
     conn = get_connection()
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
-    conn.close()
+    df_produtos["descricao"] = df_produtos["descricao"].apply(html.unescape)
     lista_prods = df_produtos["descricao"].tolist() if not df_produtos.empty else []
 
     if "itens_orcamento" not in st.session_state:
         st.session_state["itens_orcamento"] = []
 
     if lista_prods:
-        with st.form("form_orcamento_item", clear_on_submit=True):
-            col_i1, col_i2, col_i3 = st.columns([3, 1, 1])
-            prod_escolhido = col_i1.selectbox("Selecione a Peça no Histórico", lista_prods)
-            qtd_item = col_i2.number_input("Quantidade", min_value=1, value=1)
-            preco_item = col_i3.number_input("Preço Unitário Sugerido (R$)", min_value=0.0, value=100.0, step=10.0)
-            
-            btn_add = st.form_submit_button("➕ Adicionar Item na Cotação")
-            if btn_add:
-                st.session_state["itens_orcamento"].append({
-                    "produto": prod_escolhido,
-                    "quantidade": qtd_item,
-                    "preco_unitario": preco_item,
-                    "total": qtd_item * preco_item
-                })
-                st.success("Item adicionado com sucesso!")
+        col_i1, col_i2, col_i3 = st.columns([3, 1, 1])
+        prod_escolhido = col_i1.selectbox("Selecione a Peça no Histórico", lista_prods)
+        
+        # ✨ BUSCA O ÚLTIMO VALOR DE COMPRA PARA O ORÇAMENTO
+        custo_bd = 0.0
+        if prod_escolhido:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT i.valor_unitario 
+                FROM itens_nota i
+                JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
+                WHERE i.descricao = ? OR i.descricao = ?
+                ORDER BY n.data_emissao DESC LIMIT 1
+            """, (prod_escolhido, html.escape(prod_escolhido)))
+            res = cursor.fetchone()
+            if res and res[0]:
+                custo_bd = res[0]
+        conn.close()
+
+        qtd_item = col_i2.number_input("Quantidade", min_value=1, value=1)
+        preco_item = col_i3.number_input("Preço Unit. Sugerido (R$)", min_value=0.0, value=float(custo_bd), step=1.0)
+        
+        if st.button("➕ Adicionar Item na Cotação"):
+            st.session_state["itens_orcamento"].append({
+                "produto": prod_escolhido,
+                "quantidade": qtd_item,
+                "preco_unitario": preco_item,
+                "total": qtd_item * preco_item
+            })
+            st.rerun()
 
     if st.session_state["itens_orcamento"]:
         st.write("#### 🛒 Itens Selecionados na Cotação")
         df_carrinho = pd.DataFrame(st.session_state["itens_orcamento"])
         st.dataframe(df_carrinho, use_container_width=True, hide_index=True)
         
-        total_geral = df_carrinho["total"].sum()
+        col_f1, col_f2 = st.columns(2)
+        valor_frete = col_f1.number_input("📦 Valor Total do Frete (R$)", min_value=0.0, value=0.0, step=5.0)
+        
+        total_geral = df_carrinho["total"].sum() + valor_frete
         st.markdown(f"### 💰 **VALOR TOTAL DA COTAÇÃO: R$ {total_geral:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
 
         col_b1, col_b2 = st.columns(2)
@@ -278,7 +310,6 @@ elif menu == "📄 Cotação / Orçamento":
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO CENTRALIZADO COM LOGO SEM BORDA ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
                 pdf.image(str(logo_path), x=10, y=10, w=32)
@@ -303,13 +334,11 @@ elif menu == "📄 Cotação / Orçamento":
             
             pdf.ln(8)
             
-            # --- TÍTULO E NÚMEROS DA COTAÇÃO / OC ---
             pdf.set_fill_color(30, 90, 160)
             pdf.set_text_color(255, 255, 255)
             pdf.set_font("Arial", "B", 10)
             pdf.cell(190, 7, f"  COTACAO / ORCAMENTO: {num_cotacao}    |    ORDEM DE COMPRA (OC): {num_oc if num_oc else 'N/I'}", 1, 1, "L", True)
             
-            # --- DADOS DO CLIENTE E LOGÍSTICA ---
             pdf.set_fill_color(245, 247, 250)
             pdf.set_text_color(30, 30, 30)
             pdf.set_font("Arial", "", 8.5)
@@ -326,7 +355,7 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.cell(95, 5, f"Telefone: {tel_cliente}", 0, 1)
             
             pdf.set_x(12)
-            pdf.cell(95, 5, f"Transportadora: {transportadora}", 0, 0)
+            pdf.cell(95, 5, f"Transportadora: {transportadora} (Peso: {peso_total_orc})", 0, 0) 
             pdf.cell(95, 5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
             
             pdf.set_x(12)
@@ -335,7 +364,6 @@ elif menu == "📄 Cotação / Orçamento":
             
             pdf.ln(10)
             
-            # --- TABELA DE PRODUTOS ---
             pdf.set_fill_color(30, 90, 160)
             pdf.set_text_color(255, 255, 255)
             pdf.set_font("Arial", "B", 9)
@@ -360,10 +388,18 @@ elif menu == "📄 Cotação / Orçamento":
                 pdf.cell(35, 6, f"R$ {item['preco_unitario']:.2f} ", 1, 0, "R", True)
                 pdf.cell(35, 6, f"R$ {item['total']:.2f} ", 1, 1, "R", True)
                 preencher = not preencher
-                
+            
+            if valor_frete > 0:
+                pdf.set_fill_color(240, 245, 250)
+                pdf.set_text_color(20, 50, 120)
+                pdf.cell(100, 6, "  FRETE / TRANSPORTE", 1, 0, "L", True)
+                pdf.set_text_color(40, 40, 40)
+                pdf.cell(20, 6, "-", 1, 0, "C", True)
+                pdf.cell(35, 6, "-", 1, 0, "C", True)
+                pdf.cell(35, 6, f"R$ {valor_frete:.2f} ", 1, 1, "R", True)
+
             pdf.ln(5)
             
-            # --- BLOCO DE VALOR TOTAL LOGO ABAIXO DOS ITENS (ESTILO ERP) ---
             y_totais = pdf.get_y()
             pdf.set_xy(110, y_totais)
             pdf.set_fill_color(235, 240, 245)
@@ -371,7 +407,6 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_text_color(20, 50, 120)
             pdf.cell(90, 8, f"VALOR TOTAL GERAL: R$ {total_geral:,.2f}   ", 1, 1, "R", True)
             
-            # Salva PDF Temporário
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                 pdf.output(tmp_file.name)
                 with open(tmp_file.name, "rb") as f_pdf:
