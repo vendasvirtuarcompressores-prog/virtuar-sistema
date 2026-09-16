@@ -335,12 +335,11 @@ elif menu == "📄 Cotação / Orçamento":
     st.title("Emissão de Cotação e Orçamento Profissional")
     st.write("Gerencie clientes, preencha os dados e gere o PDF com o layout Padrão VirtuAr.")
 
-    # ------------------ INÍCIO DA GESTÃO DE CLIENTES ------------------
+    # ------------------ GESTÃO DE CLIENTES ------------------
     st.subheader("1. Seleção de Cliente Cadastrado ou Novo")
     
     try:
         conn = get_connection()
-        # Lê todos os clientes do banco
         df_cli_completo = pd.read_sql_query("SELECT id, cnpj_cpf, razao_social, telefone, endereco, cidade_uf, cep FROM clientes ORDER BY razao_social", conn)
     except Exception:
         df_cli_completo = pd.DataFrame(columns=["id", "cnpj_cpf", "razao_social", "telefone", "endereco", "cidade_uf", "cep"])
@@ -353,10 +352,8 @@ elif menu == "📄 Cotação / Orçamento":
     col_sel_cli1, col_sel_cli2 = st.columns([2, 1])
     cliente_escolhido = col_sel_cli1.selectbox("🏢 Buscar Cliente no Banco", lista_nomes_clientes)
 
-    # Variáveis padrão para novos clientes
     v_nome, v_cnpj, v_tel, v_end, v_cid, v_cep = "Cliente Balcão", "00.000.000/0001-00", "(31) 9____-____", "Rua Principal, 100", "Contagem - MG", "32000-000"
 
-    # Se um cliente do banco for selecionado, substitui as variáveis com os dados dele
     if cliente_escolhido != "+ Cadastrar / Usar Novo Cliente" and not df_cli_completo.empty:
         dados_cli = df_cli_completo[df_cli_completo["razao_social"] == cliente_escolhido].iloc[0]
         v_nome = dados_cli["razao_social"] if pd.notna(dados_cli["razao_social"]) else ""
@@ -382,9 +379,7 @@ elif menu == "📄 Cotação / Orçamento":
     cid_cliente = col_e2.text_input("🏙️ Cidade / UF", v_cid)
     cep_cliente = col_e3.text_input("📮 CEP", v_cep)
 
-    # Botão para salvar esse cliente (novo ou atualizado) no banco de dados automaticamente
     salvar_cliente_novo = st.checkbox("💾 Salvar ou atualizar este cliente na base de dados para futuras cotações", value=True)
-    # ------------------ FIM DA GESTÃO DE CLIENTES ------------------
 
     opcoes_pagamento = [
         "À vista (Dinheiro/PIX)",
@@ -458,7 +453,7 @@ elif menu == "📄 Cotação / Orçamento":
                 if 'conn' in locals():
                     conn.close()
 
-        qtd_item = col_i2.number_input("Quantidade", min_value=1, value=1)
+        qtd_item = col_i2.number_input("Quantidade Inicial", min_value=1, value=1)
         preco_item = col_i3.number_input("Preço Unit. Sugerido (R$)", min_value=0.0, value=float(custo_bd), step=1.0)
         
         if st.button("➕ Adicionar Item na Cotação"):
@@ -470,33 +465,69 @@ elif menu == "📄 Cotação / Orçamento":
             })
             st.rerun()
 
+    # ------------------ CARRINHO INTERATIVO E EDITÁVEL ------------------
     if st.session_state["itens_orcamento"]:
         st.write("#### 🛒 Itens Selecionados na Cotação")
-        df_carrinho = pd.DataFrame(st.session_state["itens_orcamento"])
-        st.dataframe(df_carrinho, use_container_width=True, hide_index=True)
+        st.info("💡 **Dica:** Você pode alterar a **quantidade** e o **preço unitário** diretamente nos campos abaixo. O total se atualiza sozinho!")
+        
+        # Cabeçalho da tabela de edição
+        hc1, hc2, hc3, hc4, hc5 = st.columns([4, 1.5, 1.5, 1.5, 0.5])
+        hc1.write("**Produto**")
+        hc2.write("**Qtd**")
+        hc3.write("**Preço Unit.**")
+        hc4.write("**Total**")
+        
+        itens_para_remover = []
+        
+        # Loop interativo para editar e excluir itens na mesma tela
+        for i, item in enumerate(st.session_state["itens_orcamento"]):
+            c1, c2, c3, c4, c5 = st.columns([4, 1.5, 1.5, 1.5, 0.5])
+            
+            c1.markdown(f"<div style='padding-top: 10px; font-size: 14px;'>{item['produto']}</div>", unsafe_allow_html=True)
+            
+            nova_qtd = c2.number_input("Qtd", min_value=1, value=item["quantidade"], key=f"q_{i}", label_visibility="collapsed")
+            novo_preco = c3.number_input("Preço", min_value=0.0, value=item["preco_unitario"], step=1.0, key=f"p_{i}", label_visibility="collapsed")
+            
+            subtotal = nova_qtd * novo_preco
+            c4.markdown(f"<div style='padding-top: 10px; font-weight: bold;'>R$ {subtotal:.2f}</div>", unsafe_allow_html=True)
+            
+            # Botão de exclusão (Lixeira)
+            if c5.button("🗑️", key=f"del_{i}", help="Remover item"):
+                itens_para_remover.append(i)
+                
+            # Atualiza os valores alterados no sistema
+            st.session_state["itens_orcamento"][i]["quantidade"] = nova_qtd
+            st.session_state["itens_orcamento"][i]["preco_unitario"] = novo_preco
+            st.session_state["itens_orcamento"][i]["total"] = subtotal
+            
+        # Processa as exclusões (se houver)
+        if itens_para_remover:
+            for i in reversed(itens_para_remover):
+                st.session_state["itens_orcamento"].pop(i)
+            st.rerun()
+
+        st.markdown("---")
         
         col_f1, col_f2 = st.columns(2)
         valor_frete = col_f1.number_input("📦 Valor Total do Frete (R$)", min_value=0.0, value=0.0, step=5.0)
         
-        total_produtos = df_carrinho["total"].sum()
+        total_produtos = sum(item["total"] for item in st.session_state["itens_orcamento"])
         total_geral = total_produtos + valor_frete
         
         st.markdown(f"#### 📦 Valor dos Produtos: R$ {total_produtos:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         st.markdown(f"### 💰 **VALOR TOTAL DA COTAÇÃO: R$ {total_geral:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
 
         col_b1, col_b2 = st.columns(2)
-        if col_b1.button("🗑️ Limpar Lista de Itens"):
+        if col_b1.button("🧹 Limpar Todos os Itens"):
             st.session_state["itens_orcamento"] = []
             st.rerun()
 
         if col_b2.button("📥 Gerar PDF Oficial (Padrão VirtuAr)", type="primary"):
             
-            # --- SALVAR CLIENTE NO BANCO ---
             if salvar_cliente_novo and nome_cliente and nome_cliente != "Cliente Balcão":
                 try:
                     conn = get_connection()
                     cursor = conn.cursor()
-                    # Salva ou atualiza os dados do cliente usando o CNPJ/CPF como chave única
                     cursor.execute("""
                         INSERT INTO clientes (cnpj_cpf, razao_social, telefone, endereco, cidade_uf, cep)
                         VALUES (?, ?, ?, ?, ?, ?)
@@ -509,7 +540,7 @@ elif menu == "📄 Cotação / Orçamento":
                     """, (cnpj_cliente, nome_cliente, tel_cliente, end_cliente, cid_cliente, cep_cliente))
                     conn.commit()
                 except Exception as e:
-                    print(f"Erro ao salvar cliente: {e}")
+                    pass
                 finally:
                     if 'conn' in locals():
                         conn.close()
@@ -557,24 +588,27 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(2.5)
             
-            # --- DADOS DO CLIENTE ---
+            # --- DADOS DO CLIENTE (CORRIGIDO PARA NÃO SOBREPOR TEXTO) ---
             pdf.set_font("Arial", "B", 8.5)
             pdf.set_text_color(0, 0, 0)
-            pdf.cell(100, 4.5, f"Cliente: {nome_cliente}", 0, 0)
-            pdf.cell(90, 4.5, f"Data do Documento: {datetime.now().strftime('%d/%m/%Y')}", 0, 1)
+            # Aumentamos o limite da esquerda (115) e separamos Rua da Cidade
+            pdf.cell(115, 4.5, f"Cliente: {nome_cliente[:65]}", 0, 0)
+            pdf.cell(75, 4.5, f"Data do Documento: {datetime.now().strftime('%d/%m/%Y')}", 0, 1)
             
             pdf.set_font("Arial", "", 8.5)
-            pdf.cell(100, 4.5, f"Endereco: {end_cliente} - {cid_cliente} - CEP: {cep_cliente}", 0, 0)
-            pdf.cell(90, 4.5, f"Validade da Proposta: {validade_proposta}", 0, 1)
+            pdf.cell(115, 4.5, f"CPF/CNPJ: {cnpj_cliente}", 0, 0)
+            pdf.cell(75, 4.5, f"Validade da Proposta: {validade_proposta}", 0, 1)
             
-            pdf.cell(100, 4.5, f"CPF/CNPJ: {cnpj_cliente}", 0, 0)
-            pdf.cell(90, 4.5, f"Prazo de Entrega: {prazo_entrega}", 0, 1)
+            pdf.cell(115, 4.5, f"Endereco: {end_cliente[:65]}", 0, 0)
+            pdf.cell(75, 4.5, f"Prazo de Entrega: {prazo_entrega}", 0, 1)
             
-            pdf.cell(100, 4.5, f"Telefone: {tel_cliente}", 0, 0)
-            pdf.cell(90, 4.5, f"Transportadora: {transportadora} (Peso: {peso_total_orc})", 0, 1)
+            pdf.cell(115, 4.5, f"Cidade/UF: {cid_cliente} - CEP: {cep_cliente}", 0, 0)
+            pdf.cell(75, 4.5, f"Transportadora: {transportadora} (Peso: {peso_total_orc})", 0, 1)
             
-            pdf.cell(100, 4.5, f"Vendedor: {vendedor}", 0, 0)
-            pdf.cell(90, 4.5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
+            pdf.cell(115, 4.5, f"Telefone: {tel_cliente}", 0, 0)
+            pdf.cell(75, 4.5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
+            
+            pdf.cell(115, 4.5, f"Vendedor: {vendedor}", 0, 1)
             
             pdf.ln(2.5)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
