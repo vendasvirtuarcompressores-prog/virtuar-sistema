@@ -319,7 +319,6 @@ elif menu == "💰 Calculadora de Preços":
         else:
             divisor = 1 - soma_percentuais
             
-            # Cálculo exato espelhando a planilha oficial da VirtuAr
             preco_sem_frete = (custo_produto + custo_fixo_sem_frete) / divisor
             preco_com_frete = (custo_produto + custo_frete_gratis) / divisor
             preco_flex = (custo_produto + custo_flex) / divisor
@@ -334,23 +333,58 @@ elif menu == "💰 Calculadora de Preços":
 # ================= TELA 5: COTAÇÃO / ORÇAMENTO PROFISSIONAL =================
 elif menu == "📄 Cotação / Orçamento":
     st.title("Emissão de Cotação e Orçamento Profissional")
-    st.write("Preencha os dados do cliente e gere o PDF com o layout Padrão VirtuAr.")
+    st.write("Gerencie clientes, preencha os dados e gere o PDF com o layout Padrão VirtuAr.")
 
-    st.subheader("1. Dados da Cotação e Ordem de Compra")
+    # ------------------ INÍCIO DA GESTÃO DE CLIENTES ------------------
+    st.subheader("1. Seleção de Cliente Cadastrado ou Novo")
+    
+    try:
+        conn = get_connection()
+        # Lê todos os clientes do banco
+        df_cli_completo = pd.read_sql_query("SELECT id, cnpj_cpf, razao_social, telefone, endereco, cidade_uf, cep FROM clientes ORDER BY razao_social", conn)
+    except Exception:
+        df_cli_completo = pd.DataFrame(columns=["id", "cnpj_cpf", "razao_social", "telefone", "endereco", "cidade_uf", "cep"])
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+    lista_nomes_clientes = ["+ Cadastrar / Usar Novo Cliente"] + (df_cli_completo["razao_social"].tolist() if not df_cli_completo.empty else [])
+    
+    col_sel_cli1, col_sel_cli2 = st.columns([2, 1])
+    cliente_escolhido = col_sel_cli1.selectbox("🏢 Buscar Cliente no Banco", lista_nomes_clientes)
+
+    # Variáveis padrão para novos clientes
+    v_nome, v_cnpj, v_tel, v_end, v_cid, v_cep = "Cliente Balcão", "00.000.000/0001-00", "(31) 9____-____", "Rua Principal, 100", "Contagem - MG", "32000-000"
+
+    # Se um cliente do banco for selecionado, substitui as variáveis com os dados dele
+    if cliente_escolhido != "+ Cadastrar / Usar Novo Cliente" and not df_cli_completo.empty:
+        dados_cli = df_cli_completo[df_cli_completo["razao_social"] == cliente_escolhido].iloc[0]
+        v_nome = dados_cli["razao_social"] if pd.notna(dados_cli["razao_social"]) else ""
+        v_cnpj = dados_cli["cnpj_cpf"] if pd.notna(dados_cli["cnpj_cpf"]) else ""
+        v_tel = dados_cli["telefone"] if pd.notna(dados_cli["telefone"]) else ""
+        v_end = dados_cli["endereco"] if pd.notna(dados_cli["endereco"]) else ""
+        v_cid = dados_cli["cidade_uf"] if pd.notna(dados_cli["cidade_uf"]) else ""
+        v_cep = dados_cli["cep"] if pd.notna(dados_cli["cep"]) else ""
+
+    st.subheader("2. Dados da Cotação e Ordem de Compra")
     col_num1, col_num2 = st.columns(2)
     num_cotacao = col_num1.text_input("🔢 Número da Cotação / Orçamento", f"COT-{datetime.now().strftime('%Y%m%d')}-01")
     num_oc = col_num2.text_input("📋 N° da Ordem de Compra (Cliente - Opcional)", "")
 
-    st.subheader("2. Dados do Cliente e Logística")
+    st.subheader("3. Dados do Cliente e Logística")
     col_c1, col_c2, col_c3 = st.columns(3)
-    nome_cliente = col_c1.text_input("👤 Nome / Razão Social", "Cliente Balcão")
-    cnpj_cliente = col_c2.text_input("📄 CPF / CNPJ", "00.000.000/0001-00")
-    tel_cliente = col_c3.text_input("📞 Telefone / WhatsApp", "(31) 9____-____")
+    nome_cliente = col_c1.text_input("👤 Nome / Razão Social", v_nome)
+    cnpj_cliente = col_c2.text_input("📄 CPF / CNPJ", v_cnpj)
+    tel_cliente = col_c3.text_input("📞 Telefone / WhatsApp", v_tel)
 
     col_e1, col_e2, col_e3 = st.columns(3)
-    end_cliente = col_e1.text_input("🏠 Endereço", "Rua Principal, 100")
-    cid_cliente = col_e2.text_input("🏙️ Cidade / UF", "Contagem - MG")
-    cep_cliente = col_e3.text_input("📮 CEP", "32000-000")
+    end_cliente = col_e1.text_input("🏠 Endereço", v_end)
+    cid_cliente = col_e2.text_input("🏙️ Cidade / UF", v_cid)
+    cep_cliente = col_e3.text_input("📮 CEP", v_cep)
+
+    # Botão para salvar esse cliente (novo ou atualizado) no banco de dados automaticamente
+    salvar_cliente_novo = st.checkbox("💾 Salvar ou atualizar este cliente na base de dados para futuras cotações", value=True)
+    # ------------------ FIM DA GESTÃO DE CLIENTES ------------------
 
     opcoes_pagamento = [
         "À vista (Dinheiro/PIX)",
@@ -378,7 +412,7 @@ elif menu == "📄 Cotação / Orçamento":
     observacoes = st.text_area("📝 Observações da Cotação (Garantia, Sinal, Avisos, etc.)", "Garantia de 3 meses contra defeitos de fabricação.\nEntrega mediante confirmação de pagamento.")
 
     st.divider()
-    st.subheader("3. Adicionar Produtos ao Orçamento")
+    st.subheader("4. Adicionar Produtos ao Orçamento")
     
     lista_prods = []
     mapa_prods = {}
@@ -456,10 +490,34 @@ elif menu == "📄 Cotação / Orçamento":
             st.rerun()
 
         if col_b2.button("📥 Gerar PDF Oficial (Padrão VirtuAr)", type="primary"):
+            
+            # --- SALVAR CLIENTE NO BANCO ---
+            if salvar_cliente_novo and nome_cliente and nome_cliente != "Cliente Balcão":
+                try:
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    # Salva ou atualiza os dados do cliente usando o CNPJ/CPF como chave única
+                    cursor.execute("""
+                        INSERT INTO clientes (cnpj_cpf, razao_social, telefone, endereco, cidade_uf, cep)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(cnpj_cpf) DO UPDATE SET
+                            razao_social = excluded.razao_social,
+                            telefone = excluded.telefone,
+                            endereco = excluded.endereco,
+                            cidade_uf = excluded.cidade_uf,
+                            cep = excluded.cep
+                    """, (cnpj_cliente, nome_cliente, tel_cliente, end_cliente, cid_cliente, cep_cliente))
+                    conn.commit()
+                except Exception as e:
+                    print(f"Erro ao salvar cliente: {e}")
+                finally:
+                    if 'conn' in locals():
+                        conn.close()
+
+            # --- GERAÇÃO DO PDF ---
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO PROFISSIONAL VIRTUAR ---
             if logo_path.exists():
                 pdf.image(str(logo_path), x=10, y=3, w=40)
                 

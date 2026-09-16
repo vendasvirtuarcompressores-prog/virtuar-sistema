@@ -36,6 +36,7 @@ def inicializar_banco():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    # Tabela de Fornecedores
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS fornecedores (
         cnpj TEXT PRIMARY KEY,
@@ -44,6 +45,7 @@ def inicializar_banco():
     )
     """)
 
+    # Tabela de Notas Fiscais
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS notas_fiscais (
         chave_nfe TEXT PRIMARY KEY,
@@ -55,6 +57,7 @@ def inicializar_banco():
     )
     """)
 
+    # Tabela de Itens da Nota
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS itens_nota (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +70,20 @@ def inicializar_banco():
         valor_unitario REAL,
         valor_total REAL,
         FOREIGN KEY (chave_nfe) REFERENCES notas_fiscais (chave_nfe)
+    )
+    """)
+
+    # NOVA TABELA: Clientes para as Cotações
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS clientes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cnpj_cpf TEXT UNIQUE,
+        razao_social TEXT,
+        telefone TEXT,
+        endereco TEXT,
+        cidade_uf TEXT,
+        cep TEXT,
+        data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
