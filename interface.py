@@ -340,12 +340,14 @@ elif menu == "📄 Cotação / Orçamento":
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO MILIMETRICAMENTE NO TOPO (Y=8) ---
+            # --- CABEÇALHO PROFISSIONAL VIRTUAR ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
-                pdf.image(str(logo_path), x=10, y=8, w=38)
-                
-            pdf.set_y(8)
+                # Logo mais alta e ligeiramente maior
+                pdf.image(str(logo_path), x=10, y=2, w=42)
+
+            # Nome e informações da empresa
+            pdf.set_y(7)
             pdf.set_font("Arial", "B", 14)
             pdf.set_text_color(20, 50, 120)
             pdf.cell(0, 6, "VIRTUAR COMPRESSORES", 0, 1, "R")
@@ -359,8 +361,8 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_text_color(20, 90, 180)
             pdf.cell(0, 4, "www.VirtuArCompressores.com.br", 0, 1, "R")
             
-            # TÍTULO PUXADO PARA CIMA (Y=27), coladinho na logo sem invadir
-            pdf.set_y(27)
+            # TÍTULO LOGO ABAIXO DO CABEÇALHO (Y=26)
+            pdf.set_y(26)
             
             pdf.set_font("Arial", "B", 12)
             pdf.set_text_color(0, 0, 0)
