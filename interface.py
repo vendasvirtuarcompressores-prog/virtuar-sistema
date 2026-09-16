@@ -340,13 +340,13 @@ elif menu == "📄 Cotação / Orçamento":
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO COM LOGO AMPLIADA E POSICIONADA CORRETAMENTE ---
+            # --- CABEÇALHO COM LOGO PROPORCIONAL E ESPAÇAMENTO SEGURO ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
-                # Logo com zoom, posicionada em Y=8 para ficar alinhada e sem invadir o texto
-                pdf.image(str(logo_path), x=10, y=8, w=48)
+                # Largura ajustada para 38 (equilibrada) e Y no topo
+                pdf.image(str(logo_path), x=10, y=8, w=38)
                 
-            pdf.set_y(10)
+            pdf.set_y(8)
             pdf.set_font("Arial", "B", 15)
             pdf.set_text_color(20, 50, 120)
             pdf.cell(0, 6, "VIRTUAR COMPRESSORES", 0, 1, "R")
@@ -360,8 +360,8 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_text_color(20, 90, 180)
             pdf.cell(0, 4, "www.VirtuArCompressores.com.br", 0, 1, "R")
             
-            # Espaçamento seguro para começar o título abaixo da logo
-            pdf.set_y(32)
+            # Espaçamento ideal para começar o título bem abaixo da logo (Y=34)
+            pdf.set_y(34)
             
             # --- TÍTULO DO DOCUMENTO ---
             pdf.set_font("Arial", "B", 13)
