@@ -20,7 +20,6 @@ def get_connection():
 # ================= FUNÇÃO PARA LIMPAR TEXTOS DO XML =================
 def limpar_nome_peca(nome):
     if isinstance(nome, str):
-        # Desfaz os códigos de HTML e limpa os "códigos estranhos" de polegadas (&#168; ou ¨)
         nome = html.unescape(nome)
         nome = nome.replace("&#168;", '"').replace("¨", '"').replace("&amp;", "&")
     return nome
@@ -121,9 +120,7 @@ elif menu == "🔍 Consultas e Filtros":
 
     st.write(f"**Resultados encontrados:** {len(df)}")
     if not df.empty:
-        # Aplica a limpeza de texto na tabela
         df["Produto"] = df["Produto"].apply(limpar_nome_peca)
-        
         if termo_pesquisa:
             menor_preco = df["Preço Un. (R$)"].min()
             st.success(f"💡 O menor preço encontrado nesta busca foi **R$ {menor_preco:.2f}**")
@@ -159,7 +156,6 @@ elif menu == "💰 Calculadora de Preços":
     conn = get_connection()
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
     
-    # Limpa nomes para exibir bonitinho na lista e linka com o nome original do BD
     df_produtos["descricao_tela"] = df_produtos["descricao"].apply(limpar_nome_peca)
     mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
     lista_produtos = ["Digitar valor manualmente..."] + list(mapa_prods.keys())
@@ -233,7 +229,7 @@ elif menu == "💰 Calculadora de Preços":
 # ================= TELA 5: COTAÇÃO / ORÇAMENTO PROFISSIONAL =================
 elif menu == "📄 Cotação / Orçamento":
     st.title("Emissão de Cotação e Orçamento Profissional")
-    st.write("Preencha os dados do cliente e gere o PDF com layout clean (Padrão ODIN).")
+    st.write("Preencha os dados do cliente e gere o PDF com o layout Padrão VirtuAr.")
 
     st.subheader("1. Dados da Cotação e Ordem de Compra")
     col_num1, col_num2 = st.columns(2)
@@ -251,13 +247,27 @@ elif menu == "📄 Cotação / Orçamento":
     cid_cliente = col_e2.text_input("🏙️ Cidade / UF", "Contagem - MG")
     cep_cliente = col_e3.text_input("📮 CEP", "32000-000")
 
+    # Lista completa de Condições de Pagamento baseada na sua planilha
+    opcoes_pagamento = [
+        "À vista (Dinheiro/PIX)",
+        "À vista (Cartão de Débito)",
+        "À vista (Cartão de Crédito)",
+        "Boleto Bancário",
+        "30 Dias",
+        "Parcelado (3x)",
+        "7 Dias",
+        "21/35 Dias",
+        "28/56 Dias",
+        "30/60/90 Dias",
+        "30/60/90/120 Dias"
+    ]
+
     col_l1, col_l2, col_l3, col_l4 = st.columns(4)
     transportadora = col_l1.text_input("🚚 Transportadora", "Correios / Retirada")
     peso_total_orc = col_l2.text_input("⚖️ Peso Total", "1 kg")
-    cond_pagamento = col_l3.selectbox("💳 Cond. Pagamento", ["À vista", "Boleto Bancário", "PIX", "Cartão de Crédito", "25/50/75/100", "50% Sinal / 50% Entrega"])
+    cond_pagamento = col_l3.selectbox("💳 Cond. Pagamento", opcoes_pagamento)
     vendedor = col_l4.text_input("👔 Vendedor Responsável", "VirtuAr Compressores")
 
-    # NOVOS CAMPOS: Prazos e Observações
     col_o1, col_o2 = st.columns(2)
     prazo_entrega = col_o1.text_input("⏳ Prazo de Entrega", "Imediato / 2 dias úteis")
     validade_proposta = col_o2.text_input("📅 Validade da Proposta", "7 Dias")
@@ -269,7 +279,6 @@ elif menu == "📄 Cotação / Orçamento":
     conn = get_connection()
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
     
-    # Aplica limpeza no nome dos produtos no Orçamento também
     df_produtos["descricao_tela"] = df_produtos["descricao"].apply(limpar_nome_peca)
     mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
     lista_prods = list(mapa_prods.keys())
@@ -325,7 +334,7 @@ elif menu == "📄 Cotação / Orçamento":
             st.session_state["itens_orcamento"] = []
             st.rerun()
 
-        if col_b2.button("📥 Gerar PDF Clean (Padrão ODIN)", type="primary"):
+        if col_b2.button("📥 Gerar PDF Oficial (Padrão VirtuAr)", type="primary"):
             pdf = FPDF()
             pdf.add_page()
             
@@ -362,7 +371,7 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(4)
             
-            # --- DADOS DO CLIENTE (Com os novos campos inclusos) ---
+            # --- DADOS DO CLIENTE ---
             pdf.set_font("Arial", "B", 8.5)
             pdf.set_text_color(0, 0, 0)
             pdf.cell(100, 5, f"Cliente: {nome_cliente}", 0, 0)
@@ -415,15 +424,12 @@ elif menu == "📄 Cotação / Orçamento":
             # --- OBSERVAÇÕES E TOTAIS NO RODAPÉ DA TABELA ---
             y_totais = pdf.get_y()
             
-            # Bloco de Observações (Alinhado à Esquerda)
             pdf.set_xy(10, y_totais)
             pdf.set_font("Arial", "B", 8.5)
             pdf.cell(90, 5, "OBSERVACOES:", 0, 1, "L")
             pdf.set_font("Arial", "", 8)
-            # Imprime os textos que você digitou preservando as quebras de linha
             pdf.multi_cell(90, 4, txt=observacoes)
             
-            # Bloco de Totais (Alinhado à Direita, volta o Y para a mesma altura)
             pdf.set_xy(110, y_totais)
             pdf.set_font("Arial", "B", 9)
             pdf.set_text_color(0, 0, 0)
@@ -431,7 +437,7 @@ elif menu == "📄 Cotação / Orçamento":
             if valor_frete > 0:
                 pdf.cell(45, 6, "VALOR DO FRETE:", 0, 0, "R")
                 pdf.cell(35, 6, f"R$ {valor_frete:,.2f}", 0, 1, "R")
-                pdf.set_x(110) # Volta a margem esquerda do bloco de totais
+                pdf.set_x(110)
                 
             pdf.cell(45, 6, "VALOR TOTAL GERAL:", 0, 0, "R")
             pdf.cell(35, 6, f"R$ {total_geral:,.2f}", 0, 1, "R")
@@ -443,7 +449,7 @@ elif menu == "📄 Cotação / Orçamento":
                     bytes_pdf = f_pdf.read()
                     
             st.download_button(
-                label="📥 Baixar PDF Clean (Padrão ODIN)",
+                label="📥 Gerar PDF Oficial (Padrão VirtuAr)",
                 data=bytes_pdf,
                 file_name=f"Orcamento_{num_cotacao}.pdf",
                 mime="application/pdf",
