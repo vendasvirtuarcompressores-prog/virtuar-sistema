@@ -2,11 +2,33 @@ import os
 import sqlite3
 import xml.etree.ElementTree as ET
 from pathlib import Path
+import shutil
 
 # Configuração de caminhos
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "compras_nfe.db"
-PASTA_XMLS = BASE_DIR / "xmls"
+DATA_DIR = Path(os.environ.get("VIRTUAR_DATA_DIR", Path.home() / "VirtuArData")).expanduser()
+DB_PATH = DATA_DIR / "compras_nfe.db"
+PASTA_XMLS = DATA_DIR / "xmls"
+
+
+def migrar_dados_legados():
+    """Move os dados antigos para a pasta persistente sem sobrescrever uploads."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    banco_antigo = BASE_DIR / "compras_nfe.db"
+    if banco_antigo.exists() and not DB_PATH.exists():
+        shutil.copy2(banco_antigo, DB_PATH)
+
+    xmls_antigos = BASE_DIR / "xmls"
+    if xmls_antigos.exists():
+        PASTA_XMLS.mkdir(parents=True, exist_ok=True)
+        for arquivo in xmls_antigos.glob("*.xml"):
+            destino = PASTA_XMLS / arquivo.name
+            if not destino.exists():
+                shutil.copy2(arquivo, destino)
+
+
+migrar_dados_legados()
 
 
 def inicializar_banco():

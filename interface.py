@@ -7,12 +7,18 @@ import tempfile
 import html
 from fpdf import FPDF
 
-from criar_banco import processar_xml, salvar_no_banco, importar_todos_xmls, salvar_xml_upload
+from criar_banco import (
+    DB_PATH,
+    PASTA_XMLS,
+    processar_xml,
+    salvar_no_banco,
+    importar_todos_xmls,
+    salvar_xml_upload,
+)
 
 st.set_page_config(page_title="VirtuAr - Gestão de Compras e Orçamentos", layout="wide")
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "compras_nfe.db"
 
 def get_connection():
     return sqlite3.connect(DB_PATH)
@@ -173,8 +179,7 @@ elif menu == "📤 Upload de XML":
     st.title("Importar Novas Notas Fiscais")
     st.write("Arraste os arquivos XML para adicionar compras ao banco de dados e salvá-los permanentemente.")
 
-    PASTA_XML = BASE_DIR / "xmls"
-    PASTA_XML.mkdir(parents=True, exist_ok=True)
+    PASTA_XMLS.mkdir(parents=True, exist_ok=True)
 
     arquivos = st.file_uploader(
         "Solte os arquivos XML aqui",
