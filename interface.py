@@ -342,34 +342,45 @@ elif menu == "📄 Cotação / Orçamento":
             
             # --- CABEÇALHO PROFISSIONAL VIRTUAR ---
             logo_path = BASE_DIR / "logo.png"
+            
+            # Logo à esquerda
             if logo_path.exists():
-                # Logo mais alta e ligeiramente maior
-                pdf.image(str(logo_path), x=10, y=2, w=42)
-
-            # Nome e informações da empresa
-            pdf.set_y(7)
+                pdf.image(str(logo_path), x=10, y=3, w=40)
+                
+            # Informações da empresa à direita
+            pdf.set_xy(90, 7)
             pdf.set_font("Arial", "B", 14)
             pdf.set_text_color(20, 50, 120)
-            pdf.cell(0, 6, "VIRTUAR COMPRESSORES", 0, 1, "R")
+            pdf.cell(110, 6, "VIRTUAR COMPRESSORES", 0, 1, "R")
             
+            pdf.set_x(90)
             pdf.set_font("Arial", "", 8)
             pdf.set_text_color(80, 80, 80)
-            pdf.cell(0, 4, "Rua Manoel Teixeira de Camargos, n 90 - Loja 1 - Bairro Gloria - Contagem/MG", 0, 1, "R")
-            pdf.cell(0, 4, "Tel: (31) 2888-0533 / (31) 98288-1653", 0, 1, "R")
+            pdf.cell(110, 4, "Rua Manoel Teixeira de Camargos, n 90 - Loja 1 - Bairro Gloria - Contagem/MG", 0, 1, "R")
             
+            pdf.set_x(90)
+            pdf.cell(110, 4, "Tel: (31) 2888-0533 / (31) 98288-1653", 0, 1, "R")
+            
+            pdf.set_x(90)
             pdf.set_font("Arial", "B", 8)
             pdf.set_text_color(20, 90, 180)
-            pdf.cell(0, 4, "www.VirtuArCompressores.com.br", 0, 1, "R")
+            pdf.cell(110, 4, "www.VirtuArCompressores.com.br", 0, 1, "R")
             
-            # TÍTULO LOGO ABAIXO DO CABEÇALHO (Y=26)
-            pdf.set_y(26)
-            
+            # Título do orçamento em uma área exclusiva, sem invadir a logo
+            pdf.set_xy(50, 27)
             pdf.set_font("Arial", "B", 12)
             pdf.set_text_color(0, 0, 0)
             texto_oc = f" | ORDEM DE COMPRA (OC): {num_oc}" if num_oc else ""
-            pdf.cell(0, 7, f"COTACAO DE VENDA / ORCAMENTO: {num_cotacao}{texto_oc}", 0, 1, "C")
+            pdf.cell(
+                150,
+                7,
+                f"COTACAO DE VENDA / ORCAMENTO: {num_cotacao}{texto_oc}",
+                0,
+                1,
+                "C"
+            )
             
-            # Linha divisória fina
+            # Linha divisória
             pdf.set_draw_color(180, 180, 180)
             pdf.set_line_width(0.3)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
