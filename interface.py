@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 import tempfile
+import html
 from fpdf import FPDF
 
 from criar_banco import processar_xml, salvar_no_banco
@@ -112,6 +113,9 @@ elif menu == "🔍 Consultas e Filtros":
 
     st.write(f"**Resultados encontrados:** {len(df)}")
     if not df.empty:
+        # Limpa caracteres estranhos do XML na tabela
+        df["Produto"] = df["Produto"].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
+        
         if termo_pesquisa:
             menor_preco = df["Preço Un. (R$)"].min()
             st.success(f"💡 O menor preço encontrado nesta busca foi **R$ {menor_preco:.2f}**")
@@ -146,13 +150,19 @@ elif menu == "💰 Calculadora de Preços":
 
     conn = get_connection()
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
-    lista_produtos = ["Digitar valor manualmente..."] + df_produtos["descricao"].tolist()
+    
+    # Cria um mapa para limpar o nome na tela mas buscar certinho no banco
+    df_produtos["descricao_tela"] = df_produtos["descricao"].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
+    mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
+    
+    lista_produtos = ["Digitar valor manualmente..."] + list(mapa_prods.keys())
     
     st.subheader("1. Produto e Custo")
     produto_selecionado = st.selectbox("Selecione a peça para puxar o custo:", lista_produtos)
     
     custo_sugerido = 0.0
     if produto_selecionado != "Digitar valor manualmente...":
+        prod_db = mapa_prods[produto_selecionado] # Pega o nome exato do banco
         cursor = conn.cursor()
         cursor.execute("""
             SELECT i.valor_unitario 
@@ -160,7 +170,7 @@ elif menu == "💰 Calculadora de Preços":
             JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
             WHERE i.descricao = ?
             ORDER BY n.data_emissao DESC LIMIT 1
-        """, (produto_selecionado,))
+        """, (prod_db,))
         resultado = cursor.fetchone()
         if resultado and resultado[0]:
             custo_sugerido = resultado[0]
@@ -244,45 +254,49 @@ elif menu == "📄 Cotação / Orçamento":
     st.subheader("3. Adicionar Produtos ao Orçamento")
     
     conn = get_connection()
-    # Apenas puxa o texto exato do banco de dados, sem filtros, para resolver o erro do "COURO DE 2''"
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
-    lista_prods = df_produtos["descricao"].tolist() if not df_produtos.empty else []
+    
+    # Mapa para garantir que a tela fique bonita e o banco ache o preço exato
+    df_produtos["descricao_tela"] = df_produtos["descricao"].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
+    mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
+    lista_prods = list(mapa_prods.keys())
 
     if "itens_orcamento" not in st.session_state:
         st.session_state["itens_orcamento"] = []
 
     if lista_prods:
-        with st.form("form_orcamento_item", clear_on_submit=True):
-            col_i1, col_i2, col_i3 = st.columns([3, 1, 1])
-            prod_escolhido = col_i1.selectbox("Selecione a Peça no Histórico", lista_prods)
-            
-            # Busca precisa pelo nome exato selecionado
-            custo_bd = 0.0
-            if prod_escolhido:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT i.valor_unitario 
-                    FROM itens_nota i
-                    JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
-                    WHERE i.descricao = ?
-                    ORDER BY n.data_emissao DESC LIMIT 1
-                """, (prod_escolhido,))
-                res = cursor.fetchone()
-                if res and res[0]:
-                    custo_bd = res[0]
-            conn.close()
+        # ATENÇÃO: Removi o "st.form" aqui para a tela atualizar o preço em TEMPO REAL!
+        col_i1, col_i2, col_i3 = st.columns([3, 1, 1])
+        prod_escolhido = col_i1.selectbox("Selecione a Peça no Histórico", lista_prods)
+        
+        custo_bd = 0.0
+        if prod_escolhido:
+            prod_db = mapa_prods[prod_escolhido]
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT i.valor_unitario 
+                FROM itens_nota i
+                JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
+                WHERE i.descricao = ?
+                ORDER BY n.data_emissao DESC LIMIT 1
+            """, (prod_db,))
+            res = cursor.fetchone()
+            if res and res[0]:
+                custo_bd = res[0]
+        conn.close()
 
-            qtd_item = col_i2.number_input("Quantidade", min_value=1, value=1)
-            preco_item = col_i3.number_input("Preço Unit. Sugerido (R$)", min_value=0.0, value=float(custo_bd), step=1.0)
-            
-            if st.form_submit_button("➕ Adicionar Item na Cotação"):
-                st.session_state["itens_orcamento"].append({
-                    "produto": prod_escolhido,
-                    "quantidade": qtd_item,
-                    "preco_unitario": preco_item,
-                    "total": qtd_item * preco_item
-                })
-                st.rerun()
+        qtd_item = col_i2.number_input("Quantidade", min_value=1, value=1)
+        preco_item = col_i3.number_input("Preço Unit. Sugerido (R$)", min_value=0.0, value=float(custo_bd), step=1.0)
+        
+        # Botão normal (sem form)
+        if st.button("➕ Adicionar Item na Cotação"):
+            st.session_state["itens_orcamento"].append({
+                "produto": prod_escolhido,
+                "quantidade": qtd_item,
+                "preco_unitario": preco_item,
+                "total": qtd_item * preco_item
+            })
+            st.rerun()
 
     if st.session_state["itens_orcamento"]:
         st.write("#### 🛒 Itens Selecionados na Cotação")
@@ -386,7 +400,7 @@ elif menu == "📄 Cotação / Orçamento":
 
             pdf.ln(6)
             
-            # --- TOTAIS (Alinhados à direita, sem caixa azul) ---
+            # --- TOTAIS (Alinhados à direita) ---
             y_totais = pdf.get_y()
             pdf.set_xy(110, y_totais)
             pdf.set_font("Arial", "B", 9)
