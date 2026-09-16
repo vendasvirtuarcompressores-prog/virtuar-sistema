@@ -340,14 +340,15 @@ elif menu == "📄 Cotação / Orçamento":
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO COM LOGO PROPORCIONAL E ESPAÇAMENTO SEGURO ---
+            # --- CABEÇALHO COMPACTO NO TOPO (Logo e Empresa alinhados) ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
-                # Largura ajustada para 38 (equilibrada) e Y no topo
-                pdf.image(str(logo_path), x=10, y=8, w=38)
+                # Logo posicionada perfeitamente no topo esquerdo (Y=10)
+                pdf.image(str(logo_path), x=10, y=10, w=38)
                 
-            pdf.set_y(8)
-            pdf.set_font("Arial", "B", 15)
+            # Bloco de texto da empresa no topo direito alinhado com a logo
+            pdf.set_y(10)
+            pdf.set_font("Arial", "B", 14)
             pdf.set_text_color(20, 50, 120)
             pdf.cell(0, 6, "VIRTUAR COMPRESSORES", 0, 1, "R")
             
@@ -360,43 +361,43 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_text_color(20, 90, 180)
             pdf.cell(0, 4, "www.VirtuArCompressores.com.br", 0, 1, "R")
             
-            # Espaçamento ideal para começar o título bem abaixo da logo (Y=34)
-            pdf.set_y(34)
+            # Espaçamento ideal para o título logo abaixo do cabeçalho (Y=32)
+            pdf.set_y(32)
             
             # --- TÍTULO DO DOCUMENTO ---
-            pdf.set_font("Arial", "B", 13)
+            pdf.set_font("Arial", "B", 12)
             pdf.set_text_color(0, 0, 0)
             texto_oc = f" | ORDEM DE COMPRA (OC): {num_oc}" if num_oc else ""
-            pdf.cell(0, 8, f"COTACAO DE VENDA / ORCAMENTO: {num_cotacao}{texto_oc}", 0, 1, "C")
+            pdf.cell(0, 7, f"COTACAO DE VENDA / ORCAMENTO: {num_cotacao}{texto_oc}", 0, 1, "C")
             
             # Linha divisória fina
             pdf.set_draw_color(180, 180, 180)
             pdf.set_line_width(0.3)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(4)
+            pdf.ln(3)
             
             # --- DADOS DO CLIENTE ---
             pdf.set_font("Arial", "B", 8.5)
             pdf.set_text_color(0, 0, 0)
-            pdf.cell(100, 5, f"Cliente: {nome_cliente}", 0, 0)
-            pdf.cell(90, 5, f"Data do Documento: {datetime.now().strftime('%d/%m/%Y')}", 0, 1)
+            pdf.cell(100, 4.5, f"Cliente: {nome_cliente}", 0, 0)
+            pdf.cell(90, 4.5, f"Data do Documento: {datetime.now().strftime('%d/%m/%Y')}", 0, 1)
             
             pdf.set_font("Arial", "", 8.5)
-            pdf.cell(100, 5, f"Endereco: {end_cliente} - {cid_cliente} - CEP: {cep_cliente}", 0, 0)
-            pdf.cell(90, 5, f"Validade da Proposta: {validade_proposta}", 0, 1)
+            pdf.cell(100, 4.5, f"Endereco: {end_cliente} - {cid_cliente} - CEP: {cep_cliente}", 0, 0)
+            pdf.cell(90, 4.5, f"Validade da Proposta: {validade_proposta}", 0, 1)
             
-            pdf.cell(100, 5, f"CPF/CNPJ: {cnpj_cliente}", 0, 0)
-            pdf.cell(90, 5, f"Prazo de Entrega: {prazo_entrega}", 0, 1)
+            pdf.cell(100, 4.5, f"CPF/CNPJ: {cnpj_cliente}", 0, 0)
+            pdf.cell(90, 4.5, f"Prazo de Entrega: {prazo_entrega}", 0, 1)
             
-            pdf.cell(100, 5, f"Telefone: {tel_cliente}", 0, 0)
-            pdf.cell(90, 5, f"Transportadora: {transportadora} (Peso: {peso_total_orc})", 0, 1)
+            pdf.cell(100, 4.5, f"Telefone: {tel_cliente}", 0, 0)
+            pdf.cell(90, 4.5, f"Transportadora: {transportadora} (Peso: {peso_total_orc})", 0, 1)
             
-            pdf.cell(100, 5, f"Vendedor: {vendedor}", 0, 0)
-            pdf.cell(90, 5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
+            pdf.cell(100, 4.5, f"Vendedor: {vendedor}", 0, 0)
+            pdf.cell(90, 4.5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
             
-            pdf.ln(4)
+            pdf.ln(3)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(4)
+            pdf.ln(3)
             
             # --- TABELA DE PRODUTOS ---
             pdf.set_fill_color(23, 100, 175) 
@@ -423,7 +424,7 @@ elif menu == "📄 Cotação / Orçamento":
                 pdf.cell(30, 6, "-", 1, 0, "C", True)
                 pdf.cell(35, 6, f"R$ {valor_frete:.2f}", 1, 1, "R", True)
 
-            pdf.ln(6)
+            pdf.ln(5)
             
             # --- OBSERVAÇÕES E TOTAIS NO RODAPÉ DA TABELA ---
             y_totais = pdf.get_y()
