@@ -247,7 +247,6 @@ elif menu == "📄 Cotação / Orçamento":
     cid_cliente = col_e2.text_input("🏙️ Cidade / UF", "Contagem - MG")
     cep_cliente = col_e3.text_input("📮 CEP", "32000-000")
 
-    # Lista completa de Condições de Pagamento baseada na sua planilha
     opcoes_pagamento = [
         "À vista (Dinheiro/PIX)",
         "À vista (Cartão de Débito)",
@@ -326,7 +325,11 @@ elif menu == "📄 Cotação / Orçamento":
         col_f1, col_f2 = st.columns(2)
         valor_frete = col_f1.number_input("📦 Valor Total do Frete (R$)", min_value=0.0, value=0.0, step=5.0)
         
-        total_geral = df_carrinho["total"].sum() + valor_frete
+        total_produtos = df_carrinho["total"].sum()
+        total_geral = total_produtos + valor_frete
+        
+        # Exibe os totais desmembrados na tela também
+        st.markdown(f"#### 📦 Valor dos Produtos: R$ {total_produtos:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         st.markdown(f"### 💰 **VALOR TOTAL DA COTAÇÃO: R$ {total_geral:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
 
         col_b1, col_b2 = st.columns(2)
@@ -341,7 +344,8 @@ elif menu == "📄 Cotação / Orçamento":
             # --- CABEÇALHO LIMPO ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
-                pdf.image(str(logo_path), x=10, y=10, w=35)
+                # Aumentei o 'w' de 35 para 50 para dar aquele zoom profissional na logo
+                pdf.image(str(logo_path), x=10, y=10, w=50)
                 
             pdf.set_y(10)
             pdf.set_font("Arial", "B", 15)
@@ -434,11 +438,16 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_font("Arial", "B", 9)
             pdf.set_text_color(0, 0, 0)
             
+            # Novo Subtotal de Produtos
+            pdf.cell(45, 6, "TOTAL EM PRODUTOS:", 0, 0, "R")
+            pdf.cell(35, 6, f"R$ {total_produtos:,.2f}", 0, 1, "R")
+            
             if valor_frete > 0:
+                pdf.set_x(110)
                 pdf.cell(45, 6, "VALOR DO FRETE:", 0, 0, "R")
                 pdf.cell(35, 6, f"R$ {valor_frete:,.2f}", 0, 1, "R")
-                pdf.set_x(110)
                 
+            pdf.set_x(110)
             pdf.cell(45, 6, "VALOR TOTAL GERAL:", 0, 0, "R")
             pdf.cell(35, 6, f"R$ {total_geral:,.2f}", 0, 1, "R")
             
