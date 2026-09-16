@@ -128,25 +128,54 @@ elif menu == "🔍 Consultas e Filtros":
     else:
         st.warning("Nenhum registro encontrado.")
 
-# ================= TELA 3: UPLOAD =================
+# ================= TELA 3: UPLOAD (COM SALVAMENTO PERMANENTE) =================
 elif menu == "📤 Upload de XML":
     st.title("Importar Novas Notas Fiscais")
-    st.write("Arraste os arquivos XML para adicionar compras ao banco de dados.")
-    arquivos = st.file_uploader("Solte os arquivos XML aqui", type=["xml"], accept_multiple_files=True)
+    st.write("Arraste os arquivos XML para adicionar compras ao banco de dados e salvar na pasta permanente.")
+
+    PASTA_XML = BASE_DIR / "xmls"
+    PASTA_XML.mkdir(parents=True, exist_ok=True)
+
+    arquivos = st.file_uploader(
+        "Solte os arquivos XML aqui",
+        type=["xml"],
+        accept_multiple_files=True
+    )
+
     if arquivos:
         if st.button("Processar e Salvar"):
             sucessos = 0
+            ja_existentes = 0
+            erros = 0
+
             barra = st.progress(0)
+
             for idx, arquivo in enumerate(arquivos):
                 try:
+                    nome_xml = Path(arquivo.name).name
+                    caminho_xml = PASTA_XML / nome_xml
+
+                    if caminho_xml.exists():
+                        ja_existentes += 1
+                    else:
+                        caminho_xml.write_bytes(arquivo.getvalue())
+
                     dados = processar_xml(arquivo)
                     if dados:
                         salvar_no_banco(dados)
                         sucessos += 1
+
                 except Exception as e:
+                    erros += 1
                     st.error(f"Erro na nota {arquivo.name}: {e}")
+
                 barra.progress((idx + 1) / len(arquivos))
-            st.success(f"✅ Sucesso! {sucessos} nota(s) importada(s) para o banco.")
+
+            st.success(f"✅ {sucessos} nota(s) processada(s) e salva(s) com sucesso!")
+            if ja_existentes:
+                st.info(f"📁 {ja_existentes} XML(s) já existia(m) na pasta permanentemente.")
+            if erros:
+                st.warning(f"⚠️ {erros} arquivo(s) apresentou(aram) erro.")
 
 # ================= TELA 4: CALCULADORA =================
 elif menu == "💰 Calculadora de Preços":
@@ -343,11 +372,9 @@ elif menu == "📄 Cotação / Orçamento":
             # --- CABEÇALHO PROFISSIONAL VIRTUAR ---
             logo_path = BASE_DIR / "logo.png"
             
-            # Logo à esquerda
             if logo_path.exists():
                 pdf.image(str(logo_path), x=10, y=3, w=40)
                 
-            # Informações da empresa à direita
             pdf.set_xy(90, 7)
             pdf.set_font("Arial", "B", 14)
             pdf.set_text_color(20, 50, 120)
@@ -366,7 +393,6 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_text_color(20, 90, 180)
             pdf.cell(110, 4, "www.VirtuArCompressores.com.br", 0, 1, "R")
             
-            # Título do orçamento em uma área exclusiva, sem invadir a logo
             pdf.set_xy(50, 27)
             pdf.set_font("Arial", "B", 12)
             pdf.set_text_color(0, 0, 0)
@@ -380,7 +406,6 @@ elif menu == "📄 Cotação / Orçamento":
                 "C"
             )
             
-            # Linha divisória
             pdf.set_draw_color(180, 180, 180)
             pdf.set_line_width(0.3)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
