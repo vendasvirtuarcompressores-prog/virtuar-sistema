@@ -7,7 +7,7 @@ import tempfile
 import html
 from fpdf import FPDF
 
-from criar_banco import processar_xml, salvar_no_banco
+from criar_banco import processar_xml, salvar_no_banco, importar_todos_xmls
 
 st.set_page_config(page_title="VirtuAr - Gestão de Compras e Orçamentos", layout="wide")
 
@@ -128,10 +128,10 @@ elif menu == "🔍 Consultas e Filtros":
     else:
         st.warning("Nenhum registro encontrado.")
 
-# ================= TELA 3: UPLOAD (COM SALVAMENTO PERMANENTE) =================
+# ================= TELA 3: UPLOAD =================
 elif menu == "📤 Upload de XML":
     st.title("Importar Novas Notas Fiscais")
-    st.write("Arraste os arquivos XML para adicionar compras ao banco de dados e salvar na pasta permanente.")
+    st.write("Arraste os arquivos XML para importar ou clique no botão para escanear a pasta local.")
 
     PASTA_XML = BASE_DIR / "xmls"
     PASTA_XML.mkdir(parents=True, exist_ok=True)
@@ -143,39 +143,31 @@ elif menu == "📤 Upload de XML":
     )
 
     if arquivos:
-        if st.button("Processar e Salvar"):
+        if st.button("Processar e Salvar Arquivos Enviados"):
             sucessos = 0
-            ja_existentes = 0
             erros = 0
-
-            barra = st.progress(0)
-
-            for idx, arquivo in enumerate(arquivos):
+            for arquivo in arquivos:
                 try:
-                    nome_xml = Path(arquivo.name).name
-                    caminho_xml = PASTA_XML / nome_xml
-
-                    if caminho_xml.exists():
-                        ja_existentes += 1
-                    else:
-                        caminho_xml.write_bytes(arquivo.getvalue())
-
-                    dados = processar_xml(arquivo)
+                    caminho_xml = PASTA_XML / Path(arquivo.name).name
+                    caminho_xml.write_bytes(arquivo.getvalue())
+                    dados = processar_xml(caminho_xml)
                     if dados:
                         salvar_no_banco(dados)
                         sucessos += 1
-
                 except Exception as e:
                     erros += 1
                     st.error(f"Erro na nota {arquivo.name}: {e}")
-
-                barra.progress((idx + 1) / len(arquivos))
-
             st.success(f"✅ {sucessos} nota(s) processada(s) e salva(s) com sucesso!")
-            if ja_existentes:
-                st.info(f"📁 {ja_existentes} XML(s) já existia(m) na pasta permanentemente.")
-            if erros:
-                st.warning(f"⚠️ {erros} arquivo(s) apresentou(aram) erro.")
+
+    st.markdown("---")
+    st.subheader("📁 Sincronizar Pasta Local de XMLs")
+    st.write("Se você jogou arquivos XML diretamente na pasta do Windows (`xmls`), clique abaixo para atualizar o sistema:")
+    
+    if st.button("🔄 Sincronizar Todos os XMLs da Pasta"):
+        sucessos_pasta, erros_pasta = importar_todos_xmls()
+        st.success(f"✅ Sincronização concluída! {sucessos_pasta} nota(s) importada(s) da pasta com sucesso.")
+        if erros_pasta > 0:
+            st.warning(f"⚠️ {erros_pasta} arquivo(s) na pasta apresentou(aram) erro ao ser processado.")
 
 # ================= TELA 4: CALCULADORA =================
 elif menu == "💰 Calculadora de Preços":

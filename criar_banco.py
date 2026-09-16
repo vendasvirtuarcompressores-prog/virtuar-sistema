@@ -6,7 +6,7 @@ from pathlib import Path
 # Configuração de caminhos
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "compras_nfe.db"
-PASTA_XMLS = BASE_DIR / "xmls"  # Coloque seus arquivos .xml aqui
+PASTA_XMLS = BASE_DIR / "xmls"
 
 
 def inicializar_banco():
@@ -57,32 +57,26 @@ def processar_xml(caminho_xml):
     tree = ET.parse(caminho_xml)
     root = tree.getroot()
 
-    # Define o namespace da NFe
     ns = {"nfe": "http://www.portalfiscal.inf.br/nfe"}
 
-    # Localizar nó infNFe
     inf_nfe = root.find(".//nfe:infNFe", ns)
     if inf_nfe is None:
         return None
 
     chave_nfe = inf_nfe.attrib.get("Id", "").replace("NFe", "")
 
-    # Dados da Ide (Identificação da NF)
     ide = inf_nfe.find("nfe:ide", ns)
     numero_nf = ide.findtext("nfe:nNF", "", ns)
-    data_emissao = ide.findtext("nfe:dhEmi", "", ns)[:10]  # Pega YYYY-MM-DD
+    data_emissao = ide.findtext("nfe:dhEmi", "", ns)[:10]
 
-    # Dados do Emitente
     emit = inf_nfe.find("nfe:emit", ns)
     cnpj_fornecedor = emit.findtext("nfe:CNPJ", "", ns)
     nome_fornecedor = emit.findtext("nfe:xNome", "", ns)
     uf_fornecedor = emit.find("nfe:enderEmit", ns).findtext("nfe:UF", "", ns)
 
-    # Total da Nota
     total = inf_nfe.find(".//nfe:ICMSTot", ns)
     valor_total_nf = float(total.findtext("nfe:vNF", "0.0", ns))
 
-    # Itens da Nota
     itens = []
     for det in inf_nfe.findall("nfe:det", ns):
         prod = det.find("nfe:prod", ns)
@@ -120,7 +114,6 @@ def salvar_no_banco(dados):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Insere Fornecedor
     cursor.execute(
         """
         INSERT OR IGNORE INTO fornecedores (cnpj, nome, uf)
@@ -133,7 +126,6 @@ def salvar_no_banco(dados):
         ),
     )
 
-    # Insere Nota Fiscal
     cursor.execute(
         """
         INSERT OR REPLACE INTO notas_fiscais (chave_nfe, numero_nf, data_emissao, cnpj_fornecedor, valor_total)
@@ -148,12 +140,10 @@ def salvar_no_banco(dados):
         ),
     )
 
-    # Limpa itens anteriores da mesma nota para evitar duplicatas em re-processamento
     cursor.execute(
         "DELETE FROM itens_nota WHERE chave_nfe = ?", (dados["chave_nfe"],)
     )
 
-    # Insere Itens
     for item in dados["itens"]:
         cursor.execute(
             """
@@ -182,23 +172,22 @@ def importar_todos_xmls():
 
     if not PASTA_XMLS.exists():
         PASTA_XMLS.mkdir(parents=True, exist_ok=True)
-        print(
-            f"Pasta '{PASTA_XMLS}' criada. Coloque seus arquivos XML nela e execute novamente."
-        )
-        return
+        return 0, 0
 
     arquivos = list(PASTA_XMLS.glob("*.xml"))
-    print(f"Encontrados {len(arquivos)} arquivos XML para processar.")
+    sucessos = 0
+    erros = 0
 
-    for idx, arquivo in enumerate(arquivos, start=1):
+    for arquivo in arquivos:
         try:
             dados = processar_xml(arquivo)
-            salvar_no_banco(dados)
-            print(f"[{idx}/{len(arquivos)}] Processado: {arquivo.name}")
-        except Exception as e:
-            print(f"Erro ao processar {arquivo.name}: {e}")
+            if dados:
+                salvar_no_banco(dados)
+                sucessos += 1
+        except Exception:
+            erros += 1
 
-    print("Importação concluída com sucesso!")
+    return sucessos, erros
 
 
 if __name__ == "__main__":
