@@ -190,5 +190,20 @@ def importar_todos_xmls():
     return sucessos, erros
 
 
+def salvar_xml_upload(arquivo):
+    """
+    Salva o XML enviado pelo Streamlit na pasta permanente
+    e retorna o caminho do arquivo salvo.
+    """
+    PASTA_XMLS.mkdir(parents=True, exist_ok=True)
+    nome_arquivo = Path(arquivo.name).name
+    caminho_xml = PASTA_XMLS / nome_arquivo
+
+    if not caminho_xml.exists():
+        caminho_xml.write_bytes(arquivo.getvalue())
+
+    return caminho_xml
+
+
 if __name__ == "__main__":
     importar_todos_xmls()

@@ -7,7 +7,7 @@ import tempfile
 import html
 from fpdf import FPDF
 
-from criar_banco import processar_xml, salvar_no_banco, importar_todos_xmls
+from criar_banco import processar_xml, salvar_no_banco, importar_todos_xmls, salvar_xml_upload
 
 st.set_page_config(page_title="VirtuAr - Gestão de Compras e Orçamentos", layout="wide")
 
@@ -131,7 +131,7 @@ elif menu == "🔍 Consultas e Filtros":
 # ================= TELA 3: UPLOAD =================
 elif menu == "📤 Upload de XML":
     st.title("Importar Novas Notas Fiscais")
-    st.write("Arraste os arquivos XML para importar ou clique no botão para escanear a pasta local.")
+    st.write("Arraste os arquivos XML para adicionar compras ao banco de dados e salvá-los permanentemente.")
 
     PASTA_XML = BASE_DIR / "xmls"
     PASTA_XML.mkdir(parents=True, exist_ok=True)
@@ -143,21 +143,35 @@ elif menu == "📤 Upload de XML":
     )
 
     if arquivos:
-        if st.button("Processar e Salvar Arquivos Enviados"):
+        if st.button("Processar e Salvar"):
             sucessos = 0
+            ja_existentes = 0
             erros = 0
-            for arquivo in arquivos:
+
+            barra = st.progress(0)
+
+            for idx, arquivo in enumerate(arquivos):
                 try:
-                    caminho_xml = PASTA_XML / Path(arquivo.name).name
-                    caminho_xml.write_bytes(arquivo.getvalue())
+                    caminho_xml = salvar_xml_upload(arquivo)
                     dados = processar_xml(caminho_xml)
+
                     if dados:
                         salvar_no_banco(dados)
                         sucessos += 1
+                    else:
+                        ja_existentes += 1
+
                 except Exception as e:
                     erros += 1
                     st.error(f"Erro na nota {arquivo.name}: {e}")
+
+                barra.progress((idx + 1) / len(arquivos))
+
             st.success(f"✅ {sucessos} nota(s) processada(s) e salva(s) com sucesso!")
+            if ja_existentes:
+                st.info(f"📁 {ja_existentes} arquivo(s) já existiam ou foram verificados.")
+            if erros:
+                st.warning(f"⚠️ {erros} arquivo(s) apresentou(aram) erro.")
 
     st.markdown("---")
     st.subheader("📁 Sincronizar Pasta Local de XMLs")
@@ -203,20 +217,80 @@ elif menu == "💰 Calculadora de Preços":
 
     col_c1, col_c2 = st.columns(2)
     custo_produto = col_c1.number_input("Custo da Peça (R$)", min_value=0.0, value=float(custo_sugerido), step=1.0)
-    peso_produto = col_c2.number_input("Peso (kg) - *Apenas ref. base*", min_value=0.0, value=1.0, step=0.1)
+    peso_produto = col_c2.number_input("Peso (kg) - *Base para Tabela de Frete*", min_value=0.0, value=0.5, step=0.1)
 
     st.subheader("2. Taxas e Parâmetros (%)")
     col_t1, col_t2, col_t3 = st.columns(3)
     tipo_anuncio = col_t1.selectbox("Tipo de Anúncio", ["PREMIUM", "CLASSICO", "SHOPPE", "LOJA"])
     
     if tipo_anuncio == "PREMIUM":
-        comissao_padrao, custo_fixo_padrao, frete_tabela_padrao = 21.11, 7.95, 13.25
+        comissao_padrao, custo_fixo_padrao = 21.11, 7.95
     elif tipo_anuncio == "CLASSICO":
-        comissao_padrao, custo_fixo_padrao, frete_tabela_padrao = 16.11, 7.95, 13.25
+        comissao_padrao, custo_fixo_padrao = 16.11, 7.95
     elif tipo_anuncio == "SHOPPE":
-        comissao_padrao, custo_fixo_padrao, frete_tabela_padrao = 23.50, 5.00, 5.00
+        comissao_padrao, custo_fixo_padrao = 23.50, 5.00
     else:
-        comissao_padrao, custo_fixo_padrao, frete_tabela_padrao = 21.39, 0.50, 0.50
+        comissao_padrao, custo_fixo_padrao = 21.39, 0.50
+
+    # Lógica exata da tabela oficial de frete por peso (Produtos abaixo de R$ 79,00)
+    if peso_produto <= 0.3:
+        frete_tabela_calculado = 5.65
+    elif peso_produto <= 0.5:
+        frete_tabela_calculado = 5.95
+    elif peso_produto <= 1.0:
+        frete_tabela_calculado = 6.05
+    elif peso_produto <= 1.5:
+        frete_tabela_calculado = 6.15
+    elif peso_produto <= 2.0:
+        frete_tabela_calculado = 6.25
+    elif peso_produto <= 3.0:
+        frete_tabela_calculado = 6.35
+    elif peso_produto <= 4.0:
+        frete_tabela_calculado = 6.45
+    elif peso_produto <= 5.0:
+        frete_tabela_calculado = 6.55
+    elif peso_produto <= 6.0:
+        frete_tabela_calculado = 6.65
+    elif peso_produto <= 7.0:
+        frete_tabela_calculado = 6.75
+    elif peso_produto <= 8.0:
+        frete_tabela_calculado = 6.85
+    elif peso_produto <= 9.0:
+        frete_tabela_calculado = 6.95
+    elif peso_produto <= 11.0:
+        frete_tabela_calculado = 7.05
+    elif peso_produto <= 13.0:
+        frete_tabela_calculado = 7.15
+    elif peso_produto <= 15.0:
+        frete_tabela_calculado = 7.25
+    elif peso_produto <= 17.0:
+        frete_tabela_calculado = 7.35
+    elif peso_produto <= 20.0:
+        frete_tabela_calculado = 7.45
+    elif peso_produto <= 25.0:
+        frete_tabela_calculado = 7.65
+    elif peso_produto <= 30.0:
+        frete_tabela_calculado = 7.75
+    elif peso_produto <= 40.0:
+        frete_tabela_calculado = 7.85
+    elif peso_produto <= 50.0:
+        frete_tabela_calculado = 7.95
+    elif peso_produto <= 60.0:
+        frete_tabela_calculado = 8.05
+    elif peso_produto <= 70.0:
+        frete_tabela_calculado = 8.15
+    elif peso_produto <= 80.0:
+        frete_tabela_calculado = 8.25
+    elif peso_produto <= 90.0:
+        frete_tabela_calculado = 8.35
+    elif peso_produto <= 100.0:
+        frete_tabela_calculado = 8.45
+    elif peso_produto <= 125.0:
+        frete_tabela_calculado = 8.55
+    elif peso_produto <= 150.0:
+        frete_tabela_calculado = 8.65
+    else:
+        frete_tabela_calculado = 8.75
 
     taxa_comissao = col_t1.number_input("Taxa de Comissão (%)", min_value=0.0, value=float(comissao_padrao), step=0.01)
     imposto_governo = col_t2.number_input("Imposto Governo (%)", min_value=0.0, value=10.0, step=0.1)
@@ -225,7 +299,7 @@ elif menu == "💰 Calculadora de Preços":
     st.subheader("3. Custos de Frete (R$)")
     col_f1, col_f2, col_f3 = st.columns(3)
     custo_fixo_sem_frete = col_f1.number_input("Custo Fixo (S/ Frete Grátis)", min_value=0.0, value=float(custo_fixo_padrao), step=0.5)
-    custo_frete_gratis = col_f2.number_input("Frete Tabela (C/ Frete Grátis)", min_value=0.0, value=float(frete_tabela_padrao), step=0.5)
+    custo_frete_gratis = col_f2.number_input("Frete Tabela (C/ Frete Grátis - Baseado no Peso)", min_value=0.0, value=float(frete_tabela_calculado), step=0.5)
     custo_flex = col_f3.number_input("Custo Flex (Motoboy)", min_value=0.0, value=12.99, step=0.5)
 
     if st.button("Calcular Preços Exatos", type="primary"):
