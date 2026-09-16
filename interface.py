@@ -25,8 +25,9 @@ def limpar_nome_peca(nome):
     return nome
 
 # ================= MENU LATERAL COM LOGO E SESSÃO =================
-if (BASE_DIR / "logo.png").exists():
-    st.sidebar.image("logo.png", use_container_width=True)
+logo_path = BASE_DIR / "logo.png"
+if logo_path.exists():
+    st.sidebar.image(str(logo_path), use_container_width=True)
 
 st.sidebar.markdown("---")
 
@@ -51,77 +52,89 @@ menu = st.sidebar.radio(
 if menu == "📊 Dashboard Inicial":
     st.title("Dashboard de Compras")
     st.write("Resumo geral das notas fiscais e custos da empresa.")
-    conn = get_connection()
-    hoje = datetime.now()
-    mes_atual = hoje.strftime("%m")
-    ano_atual = hoje.strftime("%Y")
-
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*), SUM(valor_total) FROM notas_fiscais WHERE strftime('%Y-%m', data_emissao) = ?", (f"{ano_atual}-{mes_atual}",))
-    res_mes = cursor.fetchone()
-    qtd_notas_mes = res_mes[0] if res_mes[0] else 0
-    total_gasto_mes = res_mes[1] if res_mes[1] else 0.0
     
-    cursor.execute("SELECT COUNT(*), SUM(valor_total) FROM notas_fiscais")
-    res_geral = cursor.fetchone()
-    qtd_notas_total = res_geral[0] if res_geral[0] else 0
-    total_gasto_geral = res_geral[1] if res_geral[1] else 0.0
+    try:
+        conn = get_connection()
+        hoje = datetime.now()
+        mes_atual = hoje.strftime("%m")
+        ano_atual = hoje.strftime("%Y")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Gasto no Mês Atual", f"R$ {total_gasto_mes:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    col2.metric("Notas Lançadas no Mês", qtd_notas_mes)
-    col3.metric("Total Histórico Acumulado", f"R$ {total_gasto_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*), SUM(valor_total) FROM notas_fiscais WHERE strftime('%Y-%m', data_emissao) = ?", (f"{ano_atual}-{mes_atual}",))
+        res_mes = cursor.fetchone()
+        qtd_notas_mes = res_mes[0] if res_mes and res_mes[0] else 0
+        total_gasto_mes = res_mes[1] if res_mes and res_mes[1] else 0.0
+        
+        cursor.execute("SELECT COUNT(*), SUM(valor_total) FROM notas_fiscais")
+        res_geral = cursor.fetchone()
+        qtd_notas_total = res_geral[0] if res_geral and res_geral[0] else 0
+        total_gasto_geral = res_geral[1] if res_geral and res_geral[1] else 0.0
 
-    st.divider()
-    st.subheader("Últimas 5 Notas Lançadas")
-    df_ultimas = pd.read_sql_query("""
-        SELECT strftime('%d/%m/%Y', n.data_emissao) AS Data, f.nome AS Fornecedor, n.numero_nf AS NF, n.valor_total AS Total
-        FROM notas_fiscais n
-        JOIN fornecedores f ON n.cnpj_fornecedor = f.cnpj
-        ORDER BY n.data_emissao DESC LIMIT 5
-    """, conn)
-    st.dataframe(df_ultimas, use_container_width=True, hide_index=True)
-    conn.close()
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Gasto no Mês Atual", f"R$ {total_gasto_mes:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        col2.metric("Notas Lançadas no Mês", qtd_notas_mes)
+        col3.metric("Total Histórico Acumulado", f"R$ {total_gasto_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+        st.divider()
+        st.subheader("Últimas 5 Notas Lançadas")
+        df_ultimas = pd.read_sql_query("""
+            SELECT strftime('%d/%m/%Y', n.data_emissao) AS Data, f.nome AS Fornecedor, n.numero_nf AS NF, n.valor_total AS Total
+            FROM notas_fiscais n
+            JOIN fornecedores f ON n.cnpj_fornecedor = f.cnpj
+            ORDER BY n.data_emissao DESC LIMIT 5
+        """, conn)
+        st.dataframe(df_ultimas, use_container_width=True, hide_index=True)
+    except Exception as e:
+        st.error(f"Erro ao carregar o dashboard: {e}")
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 # ================= TELA 2: CONSULTAS =================
 elif menu == "🔍 Consultas e Filtros":
     st.title("Consulta de Peças e Preços")
-    conn = get_connection()
-    df_fornecedores = pd.read_sql_query("SELECT DISTINCT nome FROM fornecedores ORDER BY nome", conn)
-    lista_fornecedores = ["Todos"] + df_fornecedores["nome"].tolist()
-    
-    col_busca1, col_busca2, col_busca3 = st.columns(3)
-    termo_pesquisa = col_busca1.text_input("🔍 Nome da Peça (ex: PRESSOSTATO)")
-    fornecedor_selecionado = col_busca2.selectbox("🏢 Fornecedor", lista_fornecedores)
-    meses = {"Todos": "", "Janeiro": "01", "Fevereiro": "02", "Março": "03", "Abril": "04", "Maio": "05", "Junho": "06", "Julho": "07", "Agosto": "08", "Setembro": "09", "Outubro": "10", "Novembro": "11", "Dezembro": "12"}
-    mes_selecionado = col_busca3.selectbox("📅 Mês da Compra", list(meses.keys()))
+    try:
+        conn = get_connection()
+        df_fornecedores = pd.read_sql_query("SELECT DISTINCT nome FROM fornecedores ORDER BY nome", conn)
+        lista_fornecedores = ["Todos"] + df_fornecedores["nome"].tolist()
+        
+        col_busca1, col_busca2, col_busca3 = st.columns(3)
+        termo_pesquisa = col_busca1.text_input("🔍 Nome da Peça (ex: PRESSOSTATO)")
+        fornecedor_selecionado = col_busca2.selectbox("🏢 Fornecedor", lista_fornecedores)
+        meses = {"Todos": "", "Janeiro": "01", "Fevereiro": "02", "Março": "03", "Abril": "04", "Maio": "05", "Junho": "06", "Julho": "07", "Agosto": "08", "Setembro": "09", "Outubro": "10", "Novembro": "11", "Dezembro": "12"}
+        mes_selecionado = col_busca3.selectbox("📅 Mês da Compra", list(meses.keys()))
 
-    query = """
-    SELECT strftime('%d/%m/%Y', n.data_emissao) AS "Data", f.nome AS "Fornecedor", i.descricao AS "Produto", i.quantidade AS "Qtd", i.valor_unitario AS "Preço Un. (R$)", i.valor_total AS "Total (R$)"
-    FROM itens_nota i
-    JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
-    JOIN fornecedores f ON n.cnpj_fornecedor = f.cnpj
-    WHERE 1=1
-    """
-    params = []
-    if termo_pesquisa:
-        query += " AND i.descricao LIKE ?"
-        params.append(f"%{termo_pesquisa.upper()}%")
-    if fornecedor_selecionado != "Todos":
-        query += " AND f.nome = ?"
-        params.append(fornecedor_selecionado)
-    if mes_selecionado != "Todos":
-        query += " AND strftime('%m', n.data_emissao) = ?"
-        params.append(meses[mes_selecionado])
-    query += " ORDER BY n.data_emissao DESC"
-    
-    df = pd.read_sql_query(query, conn, params=params)
-    conn.close()
+        query = """
+        SELECT strftime('%d/%m/%Y', n.data_emissao) AS "Data", f.nome AS "Fornecedor", i.descricao AS "Produto", i.quantidade AS "Qtd", i.valor_unitario AS "Preço Un. (R$)", i.valor_total AS "Total (R$)"
+        FROM itens_nota i
+        JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
+        JOIN fornecedores f ON n.cnpj_fornecedor = f.cnpj
+        WHERE 1=1
+        """
+        params = []
+        if termo_pesquisa:
+            query += " AND i.descricao LIKE ?"
+            params.append(f"%{termo_pesquisa.upper()}%")
+        if fornecedor_selecionado != "Todos":
+            query += " AND f.nome = ?"
+            params.append(fornecedor_selecionado)
+        if mes_selecionado != "Todos":
+            query += " AND strftime('%m', n.data_emissao) = ?"
+            params.append(meses[mes_selecionado])
+        query += " ORDER BY n.data_emissao DESC"
+        
+        df = pd.read_sql_query(query, conn, params=params)
+    except Exception as e:
+        st.error(f"Erro ao consultar o banco de dados: {e}")
+        df = pd.DataFrame()
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
     st.write(f"**Resultados encontrados:** {len(df)}")
     if not df.empty:
         df["Produto"] = df["Produto"].apply(limpar_nome_peca)
-        if termo_pesquisa:
+        if termo_pesquisa and "Preço Un. (R$)" in df.columns:
             menor_preco = df["Preço Un. (R$)"].min()
             st.success(f"💡 O menor preço encontrado nesta busca foi **R$ {menor_preco:.2f}**")
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -178,42 +191,60 @@ elif menu == "📤 Upload de XML":
     st.write("Se você jogou arquivos XML diretamente na pasta do Windows (`xmls`), clique abaixo para atualizar o sistema:")
     
     if st.button("🔄 Sincronizar Todos os XMLs da Pasta"):
-        sucessos_pasta, erros_pasta = importar_todos_xmls()
-        st.success(f"✅ Sincronização concluída! {sucessos_pasta} nota(s) importada(s) da pasta com sucesso.")
-        if erros_pasta > 0:
-            st.warning(f"⚠️ {erros_pasta} arquivo(s) na pasta apresentou(aram) erro ao ser processado.")
+        try:
+            sucessos_pasta, erros_pasta = importar_todos_xmls()
+            st.success(f"✅ Sincronização concluída! {sucessos_pasta} nota(s) importada(s) da pasta com sucesso.")
+            if erros_pasta > 0:
+                st.warning(f"⚠️ {erros_pasta} arquivo(s) na pasta apresentou(aram) erro ao ser processado.")
+        except Exception as e:
+            st.error(f"Erro ao sincronizar pasta: {e}")
 
 # ================= TELA 4: CALCULADORA =================
 elif menu == "💰 Calculadora de Preços":
     st.title("Calculadora de Preços (Espelho da Planilha)")
     st.write("Cálculo exato de Markup Reverso considerando comissões, impostos e custos de frete por peso.")
 
-    conn = get_connection()
-    df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
-    
-    df_produtos["descricao_tela"] = df_produtos["descricao"].apply(limpar_nome_peca)
-    mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
-    lista_produtos = ["Digitar valor manualmente..."] + list(mapa_prods.keys())
+    custo_sugerido = 0.0
+    lista_produtos = ["Digitar valor manualmente..."]
+    mapa_prods = {}
+
+    try:
+        conn = get_connection()
+        df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
+        if not df_produtos.empty:
+            df_produtos["descricao_tela"] = df_produtos["descricao"].apply(limpar_nome_peca)
+            mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
+            lista_produtos = ["Digitar valor manualmente..."] + list(mapa_prods.keys())
+    except Exception:
+        pass
+    finally:
+        if 'conn' in locals():
+            conn.close()
     
     st.subheader("1. Produto e Custo")
     produto_selecionado = st.selectbox("Selecione a peça para puxar o custo:", lista_produtos)
     
-    custo_sugerido = 0.0
     if produto_selecionado != "Digitar valor manualmente...":
         prod_db = mapa_prods[produto_selecionado]
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT i.valor_unitario 
-            FROM itens_nota i
-            JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
-            WHERE i.descricao = ?
-            ORDER BY n.data_emissao DESC LIMIT 1
-        """, (prod_db,))
-        resultado = cursor.fetchone()
-        if resultado and resultado[0]:
-            custo_sugerido = resultado[0]
-            st.info(f"💡 Último custo de compra (mais atual): **R$ {custo_sugerido:.2f}**")
-    conn.close()
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT i.valor_unitario 
+                FROM itens_nota i
+                JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
+                WHERE i.descricao = ?
+                ORDER BY n.data_emissao DESC LIMIT 1
+            """, (prod_db,))
+            resultado = cursor.fetchone()
+            if resultado and resultado[0]:
+                custo_sugerido = resultado[0]
+                st.info(f"💡 Último custo de compra (mais atual): **R$ {custo_sugerido:.2f}**")
+        except Exception:
+            pass
+        finally:
+            if 'conn' in locals():
+                conn.close()
 
     col_c1, col_c2 = st.columns(2)
     custo_produto = col_c1.number_input("Custo da Peça (R$)", min_value=0.0, value=float(custo_sugerido), step=1.0)
@@ -232,65 +263,61 @@ elif menu == "💰 Calculadora de Preços":
     else:
         comissao_padrao, custo_fixo_padrao = 21.39, 0.50
 
-    # Lógica exata da tabela oficial de frete por peso (Produtos abaixo de R$ 79,00)
+    # Tabela oficial sincronizada com a planilha para produtos abaixo de R$ 79,00
     if peso_produto <= 0.3:
-        frete_tabela_calculado = 5.65
-    elif peso_produto <= 0.5:
-        frete_tabela_calculado = 5.95
-    elif peso_produto <= 1.0:
-        frete_tabela_calculado = 6.05
-    elif peso_produto <= 1.5:
-        frete_tabela_calculado = 6.15
-    elif peso_produto <= 2.0:
-        frete_tabela_calculado = 6.25
-    elif peso_produto <= 3.0:
-        frete_tabela_calculado = 6.35
-    elif peso_produto <= 4.0:
-        frete_tabela_calculado = 6.45
-    elif peso_produto <= 5.0:
         frete_tabela_calculado = 6.55
-    elif peso_produto <= 6.0:
+    elif peso_produto <= 0.5:
         frete_tabela_calculado = 6.65
-    elif peso_produto <= 7.0:
+    elif peso_produto <= 1.0:
         frete_tabela_calculado = 6.75
-    elif peso_produto <= 8.0:
+    elif peso_produto <= 1.5:
         frete_tabela_calculado = 6.85
-    elif peso_produto <= 9.0:
+    elif peso_produto <= 2.0:
         frete_tabela_calculado = 6.95
-    elif peso_produto <= 11.0:
-        frete_tabela_calculado = 7.05
-    elif peso_produto <= 13.0:
-        frete_tabela_calculado = 7.15
-    elif peso_produto <= 15.0:
-        frete_tabela_calculado = 7.25
-    elif peso_produto <= 17.0:
-        frete_tabela_calculado = 7.35
-    elif peso_produto <= 20.0:
-        frete_tabela_calculado = 7.45
-    elif peso_produto <= 25.0:
-        frete_tabela_calculado = 7.65
-    elif peso_produto <= 30.0:
-        frete_tabela_calculado = 7.75
-    elif peso_produto <= 40.0:
-        frete_tabela_calculado = 7.85
-    elif peso_produto <= 50.0:
+    elif peso_produto <= 3.0:
         frete_tabela_calculado = 7.95
-    elif peso_produto <= 60.0:
-        frete_tabela_calculado = 8.05
-    elif peso_produto <= 70.0:
+    elif peso_produto <= 4.0:
         frete_tabela_calculado = 8.15
-    elif peso_produto <= 80.0:
-        frete_tabela_calculado = 8.25
-    elif peso_produto <= 90.0:
+    elif peso_produto <= 5.0:
         frete_tabela_calculado = 8.35
-    elif peso_produto <= 100.0:
-        frete_tabela_calculado = 8.45
-    elif peso_produto <= 125.0:
+    elif peso_produto <= 6.0:
         frete_tabela_calculado = 8.55
-    elif peso_produto <= 150.0:
-        frete_tabela_calculado = 8.65
-    else:
+    elif peso_produto <= 7.0:
         frete_tabela_calculado = 8.75
+    elif peso_produto <= 8.0:
+        frete_tabela_calculado = 8.95
+    elif peso_produto <= 9.0:
+        frete_tabela_calculado = 9.15
+    elif peso_produto <= 11.0:
+        frete_tabela_calculado = 9.55
+    elif peso_produto <= 13.0:
+        frete_tabela_calculado = 9.95
+    elif peso_produto <= 15.0:
+        frete_tabela_calculado = 10.15
+    elif peso_produto <= 17.0:
+        frete_tabela_calculado = 10.35
+    elif peso_produto <= 20.0:
+        frete_tabela_calculado = 10.55
+    elif peso_produto <= 25.0:
+        frete_tabela_calculado = 10.95
+    elif peso_produto <= 30.0:
+        frete_tabela_calculado = 11.15
+    elif peso_produto <= 40.0:
+        frete_tabela_calculado = 11.35
+    elif peso_produto <= 50.0:
+        frete_tabela_calculado = 11.55
+    elif peso_produto <= 60.0:
+        frete_tabela_calculado = 11.75
+    elif peso_produto <= 70.0:
+        frete_tabela_calculado = 11.95
+    elif peso_produto <= 80.0:
+        frete_tabela_calculado = 12.15
+    elif peso_produto <= 90.0:
+        frete_tabela_calculado = 12.35
+    elif peso_produto <= 100.0:
+        frete_tabela_calculado = 12.55
+    else:
+        frete_tabela_calculado = 12.75
 
     taxa_comissao = col_t1.number_input("Taxa de Comissão (%)", min_value=0.0, value=float(comissao_padrao), step=0.01)
     imposto_governo = col_t2.number_input("Imposto Governo (%)", min_value=0.0, value=10.0, step=0.1)
@@ -305,7 +332,7 @@ elif menu == "💰 Calculadora de Preços":
     if st.button("Calcular Preços Exatos", type="primary"):
         soma_percentuais = (taxa_comissao + imposto_governo + margem_liquida) / 100
         if soma_percentuais >= 1:
-            st.error("Erro: A soma das porcentagens ultrapassa 100%.")
+            st.error("Erro: A soma das porcentagens ultrapassa ou iguala 100%. Verifique os valores.")
         elif custo_produto == 0:
             st.warning("Insira um custo válido.")
         else:
@@ -370,12 +397,20 @@ elif menu == "📄 Cotação / Orçamento":
     st.divider()
     st.subheader("3. Adicionar Produtos ao Orçamento")
     
-    conn = get_connection()
-    df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
-    
-    df_produtos["descricao_tela"] = df_produtos["descricao"].apply(limpar_nome_peca)
-    mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
-    lista_prods = list(mapa_prods.keys())
+    lista_prods = []
+    mapa_prods = {}
+    try:
+        conn = get_connection()
+        df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
+        if not df_produtos.empty:
+            df_produtos["descricao_tela"] = df_produtos["descricao"].apply(limpar_nome_peca)
+            mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
+            lista_prods = list(mapa_prods.keys())
+    except Exception:
+        pass
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
     if "itens_orcamento" not in st.session_state:
         st.session_state["itens_orcamento"] = []
@@ -385,20 +420,26 @@ elif menu == "📄 Cotação / Orçamento":
         prod_escolhido = col_i1.selectbox("Selecione a Peça no Histórico", lista_prods)
         
         custo_bd = 0.0
-        if prod_escolhido:
+        if prod_escolhido and prod_escolhido in mapa_prods:
             prod_db = mapa_prods[prod_escolhido]
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT i.valor_unitario 
-                FROM itens_nota i
-                JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
-                WHERE i.descricao = ?
-                ORDER BY n.data_emissao DESC LIMIT 1
-            """, (prod_db,))
-            res = cursor.fetchone()
-            if res and res[0]:
-                custo_bd = res[0]
-        conn.close()
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT i.valor_unitario 
+                    FROM itens_nota i
+                    JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
+                    WHERE i.descricao = ?
+                    ORDER BY n.data_emissao DESC LIMIT 1
+                """, (prod_db,))
+                res = cursor.fetchone()
+                if res and res[0]:
+                    custo_bd = res[0]
+            except Exception:
+                pass
+            finally:
+                if 'conn' in locals():
+                    conn.close()
 
         qtd_item = col_i2.number_input("Quantidade", min_value=1, value=1)
         preco_item = col_i3.number_input("Preço Unit. Sugerido (R$)", min_value=0.0, value=float(custo_bd), step=1.0)
@@ -436,8 +477,6 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.add_page()
             
             # --- CABEÇALHO PROFISSIONAL VIRTUAR ---
-            logo_path = BASE_DIR / "logo.png"
-            
             if logo_path.exists():
                 pdf.image(str(logo_path), x=10, y=3, w=40)
                 
