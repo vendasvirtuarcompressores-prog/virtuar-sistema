@@ -340,14 +340,12 @@ elif menu == "📄 Cotação / Orçamento":
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO COMPACTO NO TOPO (Logo e Empresa alinhados) ---
+            # --- CABEÇALHO MILIMETRICAMENTE NO TOPO (Y=8) ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
-                # Logo posicionada perfeitamente no topo esquerdo (Y=10)
-                pdf.image(str(logo_path), x=10, y=10, w=38)
+                pdf.image(str(logo_path), x=10, y=8, w=38)
                 
-            # Bloco de texto da empresa no topo direito alinhado com a logo
-            pdf.set_y(10)
+            pdf.set_y(8)
             pdf.set_font("Arial", "B", 14)
             pdf.set_text_color(20, 50, 120)
             pdf.cell(0, 6, "VIRTUAR COMPRESSORES", 0, 1, "R")
@@ -361,10 +359,9 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_text_color(20, 90, 180)
             pdf.cell(0, 4, "www.VirtuArCompressores.com.br", 0, 1, "R")
             
-            # Espaçamento ideal para o título logo abaixo do cabeçalho (Y=32)
-            pdf.set_y(32)
+            # TÍTULO PUXADO PARA CIMA (Y=27), coladinho na logo sem invadir
+            pdf.set_y(27)
             
-            # --- TÍTULO DO DOCUMENTO ---
             pdf.set_font("Arial", "B", 12)
             pdf.set_text_color(0, 0, 0)
             texto_oc = f" | ORDEM DE COMPRA (OC): {num_oc}" if num_oc else ""
@@ -374,7 +371,7 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_draw_color(180, 180, 180)
             pdf.set_line_width(0.3)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(3)
+            pdf.ln(2.5)
             
             # --- DADOS DO CLIENTE ---
             pdf.set_font("Arial", "B", 8.5)
@@ -395,9 +392,9 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.cell(100, 4.5, f"Vendedor: {vendedor}", 0, 0)
             pdf.cell(90, 4.5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
             
-            pdf.ln(3)
+            pdf.ln(2.5)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(3)
+            pdf.ln(2.5)
             
             # --- TABELA DE PRODUTOS ---
             pdf.set_fill_color(23, 100, 175) 
