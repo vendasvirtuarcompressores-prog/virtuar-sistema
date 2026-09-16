@@ -328,7 +328,6 @@ elif menu == "📄 Cotação / Orçamento":
         total_produtos = df_carrinho["total"].sum()
         total_geral = total_produtos + valor_frete
         
-        # Exibe os totais desmembrados na tela também
         st.markdown(f"#### 📦 Valor dos Produtos: R$ {total_produtos:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
         st.markdown(f"### 💰 **VALOR TOTAL DA COTAÇÃO: R$ {total_geral:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
 
@@ -341,11 +340,11 @@ elif menu == "📄 Cotação / Orçamento":
             pdf = FPDF()
             pdf.add_page()
             
-            # --- CABEÇALHO LIMPO ---
+            # --- CABEÇALHO COM LOGO AMPLIADA E POSICIONADA CORRETAMENTE ---
             logo_path = BASE_DIR / "logo.png"
             if logo_path.exists():
-                # Aumentei o 'w' de 35 para 50 para dar aquele zoom profissional na logo
-                pdf.image(str(logo_path), x=10, y=10, w=50)
+                # Logo com zoom, posicionada em Y=8 para ficar alinhada e sem invadir o texto
+                pdf.image(str(logo_path), x=10, y=8, w=48)
                 
             pdf.set_y(10)
             pdf.set_font("Arial", "B", 15)
@@ -361,7 +360,8 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_text_color(20, 90, 180)
             pdf.cell(0, 4, "www.VirtuArCompressores.com.br", 0, 1, "R")
             
-            pdf.ln(10)
+            # Espaçamento seguro para começar o título abaixo da logo
+            pdf.set_y(32)
             
             # --- TÍTULO DO DOCUMENTO ---
             pdf.set_font("Arial", "B", 13)
@@ -438,7 +438,6 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.set_font("Arial", "B", 9)
             pdf.set_text_color(0, 0, 0)
             
-            # Novo Subtotal de Produtos
             pdf.cell(45, 6, "TOTAL EM PRODUTOS:", 0, 0, "R")
             pdf.cell(35, 6, f"R$ {total_produtos:,.2f}", 0, 1, "R")
             
