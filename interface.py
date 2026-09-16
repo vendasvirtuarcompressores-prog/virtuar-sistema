@@ -17,6 +17,14 @@ DB_PATH = BASE_DIR / "compras_nfe.db"
 def get_connection():
     return sqlite3.connect(DB_PATH)
 
+# ================= FUNÇÃO PARA LIMPAR TEXTOS DO XML =================
+def limpar_nome_peca(nome):
+    if isinstance(nome, str):
+        # Desfaz os códigos de HTML e limpa os "códigos estranhos" de polegadas (&#168; ou ¨)
+        nome = html.unescape(nome)
+        nome = nome.replace("&#168;", '"').replace("¨", '"').replace("&amp;", "&")
+    return nome
+
 # ================= MENU LATERAL COM LOGO E SESSÃO =================
 if (BASE_DIR / "logo.png").exists():
     st.sidebar.image("logo.png", use_container_width=True)
@@ -113,8 +121,8 @@ elif menu == "🔍 Consultas e Filtros":
 
     st.write(f"**Resultados encontrados:** {len(df)}")
     if not df.empty:
-        # Limpa caracteres estranhos do XML na tabela
-        df["Produto"] = df["Produto"].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
+        # Aplica a limpeza de texto na tabela
+        df["Produto"] = df["Produto"].apply(limpar_nome_peca)
         
         if termo_pesquisa:
             menor_preco = df["Preço Un. (R$)"].min()
@@ -151,10 +159,9 @@ elif menu == "💰 Calculadora de Preços":
     conn = get_connection()
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
     
-    # Cria um mapa para limpar o nome na tela mas buscar certinho no banco
-    df_produtos["descricao_tela"] = df_produtos["descricao"].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
+    # Limpa nomes para exibir bonitinho na lista e linka com o nome original do BD
+    df_produtos["descricao_tela"] = df_produtos["descricao"].apply(limpar_nome_peca)
     mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
-    
     lista_produtos = ["Digitar valor manualmente..."] + list(mapa_prods.keys())
     
     st.subheader("1. Produto e Custo")
@@ -162,7 +169,7 @@ elif menu == "💰 Calculadora de Preços":
     
     custo_sugerido = 0.0
     if produto_selecionado != "Digitar valor manualmente...":
-        prod_db = mapa_prods[produto_selecionado] # Pega o nome exato do banco
+        prod_db = mapa_prods[produto_selecionado]
         cursor = conn.cursor()
         cursor.execute("""
             SELECT i.valor_unitario 
@@ -247,8 +254,14 @@ elif menu == "📄 Cotação / Orçamento":
     col_l1, col_l2, col_l3, col_l4 = st.columns(4)
     transportadora = col_l1.text_input("🚚 Transportadora", "Correios / Retirada")
     peso_total_orc = col_l2.text_input("⚖️ Peso Total", "1 kg")
-    cond_pagamento = col_l3.selectbox("💳 Cond. Pagamento", ["À vista", "Boleto Bancário", "PIX", "Cartão de Crédito", "25/50/75/100"])
+    cond_pagamento = col_l3.selectbox("💳 Cond. Pagamento", ["À vista", "Boleto Bancário", "PIX", "Cartão de Crédito", "25/50/75/100", "50% Sinal / 50% Entrega"])
     vendedor = col_l4.text_input("👔 Vendedor Responsável", "VirtuAr Compressores")
+
+    # NOVOS CAMPOS: Prazos e Observações
+    col_o1, col_o2 = st.columns(2)
+    prazo_entrega = col_o1.text_input("⏳ Prazo de Entrega", "Imediato / 2 dias úteis")
+    validade_proposta = col_o2.text_input("📅 Validade da Proposta", "7 Dias")
+    observacoes = st.text_area("📝 Observações da Cotação (Garantia, Sinal, Avisos, etc.)", "Garantia de 3 meses contra defeitos de fabricação.\nEntrega mediante confirmação de pagamento.")
 
     st.divider()
     st.subheader("3. Adicionar Produtos ao Orçamento")
@@ -256,8 +269,8 @@ elif menu == "📄 Cotação / Orçamento":
     conn = get_connection()
     df_produtos = pd.read_sql_query("SELECT DISTINCT descricao FROM itens_nota ORDER BY descricao", conn)
     
-    # Mapa para garantir que a tela fique bonita e o banco ache o preço exato
-    df_produtos["descricao_tela"] = df_produtos["descricao"].apply(lambda x: html.unescape(x) if isinstance(x, str) else x)
+    # Aplica limpeza no nome dos produtos no Orçamento também
+    df_produtos["descricao_tela"] = df_produtos["descricao"].apply(limpar_nome_peca)
     mapa_prods = dict(zip(df_produtos["descricao_tela"], df_produtos["descricao"]))
     lista_prods = list(mapa_prods.keys())
 
@@ -265,7 +278,6 @@ elif menu == "📄 Cotação / Orçamento":
         st.session_state["itens_orcamento"] = []
 
     if lista_prods:
-        # ATENÇÃO: Removi o "st.form" aqui para a tela atualizar o preço em TEMPO REAL!
         col_i1, col_i2, col_i3 = st.columns([3, 1, 1])
         prod_escolhido = col_i1.selectbox("Selecione a Peça no Histórico", lista_prods)
         
@@ -288,7 +300,6 @@ elif menu == "📄 Cotação / Orçamento":
         qtd_item = col_i2.number_input("Quantidade", min_value=1, value=1)
         preco_item = col_i3.number_input("Preço Unit. Sugerido (R$)", min_value=0.0, value=float(custo_bd), step=1.0)
         
-        # Botão normal (sem form)
         if st.button("➕ Adicionar Item na Cotação"):
             st.session_state["itens_orcamento"].append({
                 "produto": prod_escolhido,
@@ -339,7 +350,7 @@ elif menu == "📄 Cotação / Orçamento":
             
             pdf.ln(10)
             
-            # --- TÍTULO DO DOCUMENTO (Sem caixa azul gigante) ---
+            # --- TÍTULO DO DOCUMENTO ---
             pdf.set_font("Arial", "B", 13)
             pdf.set_text_color(0, 0, 0)
             texto_oc = f" | ORDEM DE COMPRA (OC): {num_oc}" if num_oc else ""
@@ -351,7 +362,7 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(4)
             
-            # --- DADOS DO CLIENTE (Fundo Branco Padrão ODIN) ---
+            # --- DADOS DO CLIENTE (Com os novos campos inclusos) ---
             pdf.set_font("Arial", "B", 8.5)
             pdf.set_text_color(0, 0, 0)
             pdf.cell(100, 5, f"Cliente: {nome_cliente}", 0, 0)
@@ -359,21 +370,23 @@ elif menu == "📄 Cotação / Orçamento":
             
             pdf.set_font("Arial", "", 8.5)
             pdf.cell(100, 5, f"Endereco: {end_cliente} - {cid_cliente} - CEP: {cep_cliente}", 0, 0)
-            pdf.cell(90, 5, f"Transportadora: {transportadora} (Peso: {peso_total_orc})", 0, 1)
+            pdf.cell(90, 5, f"Validade da Proposta: {validade_proposta}", 0, 1)
             
             pdf.cell(100, 5, f"CPF/CNPJ: {cnpj_cliente}", 0, 0)
-            pdf.cell(90, 5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
+            pdf.cell(90, 5, f"Prazo de Entrega: {prazo_entrega}", 0, 1)
             
             pdf.cell(100, 5, f"Telefone: {tel_cliente}", 0, 0)
-            pdf.cell(90, 5, f"Vendedor: {vendedor}", 0, 1)
+            pdf.cell(90, 5, f"Transportadora: {transportadora} (Peso: {peso_total_orc})", 0, 1)
+            
+            pdf.cell(100, 5, f"Vendedor: {vendedor}", 0, 0)
+            pdf.cell(90, 5, f"Cond. Pagamento: {cond_pagamento}", 0, 1)
             
             pdf.ln(4)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(4)
             
             # --- TABELA DE PRODUTOS ---
-            # Cabeçalho da Tabela
-            pdf.set_fill_color(23, 100, 175) # Azul sólido e profissional
+            pdf.set_fill_color(23, 100, 175) 
             pdf.set_text_color(255, 255, 255)
             pdf.set_font("Arial", "B", 8)
             pdf.cell(110, 6, "  Descricao do Item", 1, 0, "L", True)
@@ -381,7 +394,6 @@ elif menu == "📄 Cotação / Orçamento":
             pdf.cell(30, 6, "Preco Unit.", 1, 0, "R", True)
             pdf.cell(35, 6, "Total", 1, 1, "R", True)
             
-            # Linhas Brancas (Clean)
             pdf.set_font("Arial", "", 8)
             pdf.set_text_color(0, 0, 0)
             pdf.set_fill_color(255, 255, 255)
@@ -400,8 +412,18 @@ elif menu == "📄 Cotação / Orçamento":
 
             pdf.ln(6)
             
-            # --- TOTAIS (Alinhados à direita) ---
+            # --- OBSERVAÇÕES E TOTAIS NO RODAPÉ DA TABELA ---
             y_totais = pdf.get_y()
+            
+            # Bloco de Observações (Alinhado à Esquerda)
+            pdf.set_xy(10, y_totais)
+            pdf.set_font("Arial", "B", 8.5)
+            pdf.cell(90, 5, "OBSERVACOES:", 0, 1, "L")
+            pdf.set_font("Arial", "", 8)
+            # Imprime os textos que você digitou preservando as quebras de linha
+            pdf.multi_cell(90, 4, txt=observacoes)
+            
+            # Bloco de Totais (Alinhado à Direita, volta o Y para a mesma altura)
             pdf.set_xy(110, y_totais)
             pdf.set_font("Arial", "B", 9)
             pdf.set_text_color(0, 0, 0)
@@ -409,7 +431,7 @@ elif menu == "📄 Cotação / Orçamento":
             if valor_frete > 0:
                 pdf.cell(45, 6, "VALOR DO FRETE:", 0, 0, "R")
                 pdf.cell(35, 6, f"R$ {valor_frete:,.2f}", 0, 1, "R")
-                pdf.set_x(110)
+                pdf.set_x(110) # Volta a margem esquerda do bloco de totais
                 
             pdf.cell(45, 6, "VALOR TOTAL GERAL:", 0, 0, "R")
             pdf.cell(35, 6, f"R$ {total_geral:,.2f}", 0, 1, "R")
