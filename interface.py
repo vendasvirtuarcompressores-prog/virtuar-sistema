@@ -24,6 +24,33 @@ def limpar_nome_peca(nome):
         nome = nome.replace("&#168;", '"').replace("¨", '"').replace("&amp;", "&")
     return nome
 
+def obter_frete_por_peso(peso, tabela):
+    for peso_maximo, valor in tabela:
+        if peso <= peso_maximo:
+            return valor
+    return tabela[-1][1]
+
+FRETE_NORMAL = [
+    (0.3, 6.55), (0.5, 6.65), (1.0, 6.75), (1.5, 6.85),
+    (2.0, 6.95), (3.0, 7.95), (4.0, 8.15), (5.0, 8.35),
+    (6.0, 8.55), (7.0, 8.75), (8.0, 8.95), (9.0, 9.15),
+    (11.0, 9.55), (13.0, 9.95), (15.0, 10.15), (17.0, 10.35),
+    (20.0, 10.55), (25.0, 10.95), (30.0, 11.15), (40.0, 11.35),
+    (50.0, 11.55), (60.0, 11.75), (70.0, 11.95), (80.0, 12.15),
+    (90.0, 12.35), (100.0, 12.55), (float("inf"), 12.75),
+]
+
+SUPER_FRETE = [
+    (0.3, 12.35), (0.5, 13.25), (1.0, 13.85), (1.5, 14.15),
+    (2.0, 14.45), (3.0, 15.75), (4.0, 17.05), (5.0, 18.45),
+    (6.0, 25.45), (7.0, 27.05), (8.0, 28.85), (9.0, 29.65),
+    (11.0, 41.25), (13.0, 42.15), (15.0, 45.05), (17.0, 48.55),
+    (20.0, 54.75), (25.0, 64.05), (30.0, 65.95), (40.0, 67.75),
+    (50.0, 70.25), (60.0, 74.95), (70.0, 80.25), (80.0, 83.95),
+    (90.0, 93.25), (100.0, 106.55), (125.0, 119.25), (150.0, 126.55),
+    (151.0, 166.15),
+]
+
 # ================= MENU LATERAL COM LOGO E SESSÃO =================
 logo_path = BASE_DIR / "logo.png"
 if logo_path.exists():
@@ -252,72 +279,21 @@ elif menu == "💰 Calculadora de Preços":
 
     st.subheader("2. Taxas e Parâmetros (%)")
     col_t1, col_t2, col_t3 = st.columns(3)
-    tipo_anuncio = col_t1.selectbox("Tipo de Anúncio", ["PREMIUM", "CLASSICO", "SHOPPE", "LOJA"])
+    tipo_anuncio = col_t1.selectbox("Tipo de Anúncio", ["PREMIUM", "CLASSICO", "SHOPPE", "LOJA INTEGRADA"])
     
     if tipo_anuncio == "PREMIUM":
-        comissao_padrao, custo_fixo_padrao = 21.11, 7.95
+        comissao_padrao, base_padrao, flex_padrao = 21.11, None, 12.99
     elif tipo_anuncio == "CLASSICO":
-        comissao_padrao, custo_fixo_padrao = 16.11, 7.95
+        comissao_padrao, base_padrao, flex_padrao = 16.11, None, 12.99
     elif tipo_anuncio == "SHOPPE":
-        comissao_padrao, custo_fixo_padrao = 23.50, 5.00
+        comissao_padrao, base_padrao, flex_padrao = 23.50, 5.00, 10.99
     else:
-        comissao_padrao, custo_fixo_padrao = 21.39, 0.50
+        comissao_padrao, base_padrao, flex_padrao = 21.39, 0.50, 12.99
 
-    # Tabela de frete exata espelhada da planilha para produtos abaixo de R$ 79,00
-    if peso_produto <= 0.3:
-        frete_tabela_calculado = 6.55
-    elif peso_produto <= 0.5:
-        frete_tabela_calculado = 6.65
-    elif peso_produto <= 1.0:
-        frete_tabela_calculado = 6.75
-    elif peso_produto <= 1.5:
-        frete_tabela_calculado = 6.85
-    elif peso_produto <= 2.0:
-        frete_tabela_calculado = 6.95
-    elif peso_produto <= 3.0:
-        frete_tabela_calculado = 7.95
-    elif peso_produto <= 4.0:
-        frete_tabela_calculado = 8.15
-    elif peso_produto <= 5.0:
-        frete_tabela_calculado = 8.35
-    elif peso_produto <= 6.0:
-        frete_tabela_calculado = 8.55
-    elif peso_produto <= 7.0:
-        frete_tabela_calculado = 8.75
-    elif peso_produto <= 8.0:
-        frete_tabela_calculado = 8.95
-    elif peso_produto <= 9.0:
-        frete_tabela_calculado = 9.15
-    elif peso_produto <= 11.0:
-        frete_tabela_calculado = 9.55
-    elif peso_produto <= 13.0:
-        frete_tabela_calculado = 9.95
-    elif peso_produto <= 15.0:
-        frete_tabela_calculado = 10.15
-    elif peso_produto <= 17.0:
-        frete_tabela_calculado = 10.35
-    elif peso_produto <= 20.0:
-        frete_tabela_calculado = 10.55
-    elif peso_produto <= 25.0:
-        frete_tabela_calculado = 10.95
-    elif peso_produto <= 30.0:
-        frete_tabela_calculado = 11.15
-    elif peso_produto <= 40.0:
-        frete_tabela_calculado = 11.35
-    elif peso_produto <= 50.0:
-        frete_tabela_calculado = 11.55
-    elif peso_produto <= 60.0:
-        frete_tabela_calculado = 11.75
-    elif peso_produto <= 70.0:
-        frete_tabela_calculado = 11.95
-    elif peso_produto <= 80.0:
-        frete_tabela_calculado = 12.15
-    elif peso_produto <= 90.0:
-        frete_tabela_calculado = 12.35
-    elif peso_produto <= 100.0:
-        frete_tabela_calculado = 12.55
-    else:
-        frete_tabela_calculado = 12.75
+    frete_tabela_calculado = obter_frete_por_peso(peso_produto, FRETE_NORMAL)
+    super_frete_calculado = obter_frete_por_peso(peso_produto, SUPER_FRETE)
+    frete_sem_frete_gratis = frete_tabela_calculado if base_padrao is None else base_padrao
+    frete_com_frete_gratis = super_frete_calculado if base_padrao is None else base_padrao
 
     taxa_comissao = col_t1.number_input("Taxa de Comissão (%)", min_value=0.0, value=float(comissao_padrao), step=0.01)
     imposto_governo = col_t2.number_input("Imposto Governo (%)", min_value=0.0, value=10.0, step=0.1)
@@ -325,9 +301,9 @@ elif menu == "💰 Calculadora de Preços":
 
     st.subheader("3. Custos de Frete (R$)")
     col_f1, col_f2, col_f3 = st.columns(3)
-    custo_fixo_sem_frete = col_f1.number_input("Custo Fixo (S/ Frete Grátis)", min_value=0.0, value=float(custo_fixo_padrao), step=0.5)
-    custo_frete_gratis = col_f2.number_input("Frete Tabela (C/ Frete Grátis - Baseado no Peso)", min_value=0.0, value=float(frete_tabela_calculado), step=0.5)
-    custo_flex = col_f3.number_input("Custo Flex (Motoboy)", min_value=0.0, value=12.99, step=0.5)
+    custo_fixo_sem_frete = col_f1.number_input("Frete normal / custo base (R$)", min_value=0.0, value=float(frete_sem_frete_gratis), step=0.5)
+    custo_frete_gratis = col_f2.number_input("Super Frete / custo base (R$)", min_value=0.0, value=float(frete_com_frete_gratis), step=0.5)
+    custo_flex = col_f3.number_input("Custo Flex (R$)", min_value=0.0, value=float(flex_padrao), step=0.5)
 
     if st.button("Calcular Preços Exatos", type="primary"):
         soma_percentuais = (taxa_comissao + imposto_governo + margem_liquida) / 100
