@@ -575,9 +575,18 @@ elif menu == "📄 Cotação / Orçamento":
             i1, i2, i3 = st.columns([3, 1, 1])
             prod_escolhido = i1.selectbox("Selecione a Peça", lista_prods, key="sel_prod_orc")
             custo_bd = ultimo_custo(mapa[prod_escolhido]) if prod_escolhido else 0.0
+
+            # O campo de preço guarda o último valor digitado (via "key").
+            # Sem isto, ele não percebe que a peça mudou e continua mostrando
+            # o preço da peça anterior. Aqui detectamos a troca e forçamos
+            # o campo a assumir o novo custo sugerido.
+            if st.session_state.get("_ultimo_prod_hist") != prod_escolhido:
+                st.session_state["preco_hist"] = float(custo_bd)
+                st.session_state["_ultimo_prod_hist"] = prod_escolhido
+
             qtd_item = i2.number_input("Quantidade", min_value=1, value=1, key="qtd_hist")
             preco_item = i3.number_input(
-                "Preço Unit. (R$)", min_value=0.0, value=float(custo_bd), step=1.0, key="preco_hist"
+                "Preço Unit. (R$)", min_value=0.0, step=1.0, key="preco_hist"
             )
             if st.button("➕ Adicionar Item na Cotação", key="add_hist"):
                 st.session_state["contador_item"] += 1
