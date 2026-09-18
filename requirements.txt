@@ -1,3 +1,5 @@
-streamlit
-pandas
-fpdf2
+streamlit>=1.36
+pandas>=2.0
+fpdf2>=2.7
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
