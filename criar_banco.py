@@ -1,101 +1,35 @@
 import os
-import sqlite3
 import xml.etree.ElementTree as ET
 from pathlib import Path
-import shutil
 
-# Configuração de caminhos
+import db
+
+# ---------------------------------------------------------------------------
+# CAMINHOS PARA OS ARQUIVOS XML (o banco em si é controlado pelo db.py)
+# ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("VIRTUAR_DATA_DIR", Path.home() / "VirtuArData")).expanduser()
-DB_PATH = DATA_DIR / "compras_nfe.db"
 PASTA_XMLS = DATA_DIR / "xmls"
 
-
-def migrar_dados_legados():
-    """Move os dados antigos para a pasta persistente sem sobrescrever uploads."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    banco_antigo = BASE_DIR / "compras_nfe.db"
-    if banco_antigo.exists() and not DB_PATH.exists():
-        shutil.copy2(banco_antigo, DB_PATH)
-
-    xmls_antigos = BASE_DIR / "xmls"
-    if xmls_antigos.exists():
-        PASTA_XMLS.mkdir(parents=True, exist_ok=True)
-        for arquivo in xmls_antigos.glob("*.xml"):
-            destino = PASTA_XMLS / arquivo.name
-            if not destino.exists():
-                shutil.copy2(arquivo, destino)
-
-
-migrar_dados_legados()
+# Mantido por compatibilidade com código antigo que possa importar DB_PATH.
+DB_PATH = DATA_DIR / "compras_nfe.db"
 
 
 def inicializar_banco():
-    """Cria a estrutura das tabelas no SQLite caso não existam."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    """Cria a estrutura das tabelas (Postgres ou SQLite, conforme configurado)."""
+    db.init_schema()
 
-    # Tabela de Fornecedores
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS fornecedores (
-        cnpj TEXT PRIMARY KEY,
-        nome TEXT,
-        uf TEXT
-    )
-    """)
 
-    # Tabela de Notas Fiscais
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS notas_fiscais (
-        chave_nfe TEXT PRIMARY KEY,
-        numero_nf TEXT,
-        data_emissao TEXT,
-        cnpj_fornecedor TEXT,
-        valor_total REAL,
-        FOREIGN KEY (cnpj_fornecedor) REFERENCES fornecedores (cnpj)
-    )
-    """)
-
-    # Tabela de Itens da Nota
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS itens_nota (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        chave_nfe TEXT,
-        codigo_prod TEXT,
-        descricao TEXT,
-        ean TEXT,
-        ncm TEXT,
-        quantidade REAL,
-        valor_unitario REAL,
-        valor_total REAL,
-        FOREIGN KEY (chave_nfe) REFERENCES notas_fiscais (chave_nfe)
-    )
-    """)
-
-    # NOVA TABELA: Clientes para as Cotações
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS clientes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        cnpj_cpf TEXT UNIQUE,
-        razao_social TEXT,
-        telefone TEXT,
-        endereco TEXT,
-        cidade_uf TEXT,
-        cep TEXT,
-        data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
-    conn.commit()
-    conn.close()
+try:
+    inicializar_banco()
+except Exception as _erro_init:
+    print(f"[VirtuAr] Aviso: não foi possível inicializar o banco: {_erro_init}")
 
 
 def processar_xml(caminho_xml):
-    """Lê um arquivo XML de NF-e e extrai os dados."""
+    """Lê um arquivo XML de NF-e e extrai os dados. Retorna None se não for NF-e."""
     tree = ET.parse(caminho_xml)
     root = tree.getroot()
-
     ns = {"nfe": "http://www.portalfiscal.inf.br/nfe"}
 
     inf_nfe = root.find(".//nfe:infNFe", ns)
@@ -105,29 +39,36 @@ def processar_xml(caminho_xml):
     chave_nfe = inf_nfe.attrib.get("Id", "").replace("NFe", "")
 
     ide = inf_nfe.find("nfe:ide", ns)
-    numero_nf = ide.findtext("nfe:nNF", "", ns)
-    data_emissao = ide.findtext("nfe:dhEmi", "", ns)[:10]
+    numero_nf = ide.findtext("nfe:nNF", "", ns) if ide is not None else ""
+    data_emissao = (
+        (ide.findtext("nfe:dhEmi", "", ns) or ide.findtext("nfe:dEmi", "", ns) or "")[:10]
+        if ide is not None else ""
+    )
 
     emit = inf_nfe.find("nfe:emit", ns)
-    cnpj_fornecedor = emit.findtext("nfe:CNPJ", "", ns)
-    nome_fornecedor = emit.findtext("nfe:xNome", "", ns)
-    uf_fornecedor = emit.find("nfe:enderEmit", ns).findtext("nfe:UF", "", ns)
+    cnpj_fornecedor = emit.findtext("nfe:CNPJ", "", ns) if emit is not None else ""
+    nome_fornecedor = emit.findtext("nfe:xNome", "", ns) if emit is not None else ""
+
+    ender_emit = emit.find("nfe:enderEmit", ns) if emit is not None else None
+    uf_fornecedor = ender_emit.findtext("nfe:UF", "", ns) if ender_emit is not None else ""
 
     total = inf_nfe.find(".//nfe:ICMSTot", ns)
-    valor_total_nf = float(total.findtext("nfe:vNF", "0.0", ns))
+    valor_total_nf = float(total.findtext("nfe:vNF", "0.0", ns)) if total is not None else 0.0
 
     itens = []
     for det in inf_nfe.findall("nfe:det", ns):
         prod = det.find("nfe:prod", ns)
+        if prod is None:
+            continue
         itens.append(
             {
                 "codigo_prod": prod.findtext("nfe:cProd", "", ns),
-                "descricao": prod.findtext("nfe:xProd", "", ns),
+                "descricao": (prod.findtext("nfe:xProd", "", ns) or "").strip(),
                 "ean": prod.findtext("nfe:cEAN", "", ns),
                 "ncm": prod.findtext("nfe:NCM", "", ns),
-                "quantidade": float(prod.findtext("nfe:qCom", "0.0", ns)),
-                "valor_unitario": float(prod.findtext("nfe:vUnCom", "0.0", ns)),
-                "valor_total": float(prod.findtext("nfe:vProd", "0.0", ns)),
+                "quantidade": float(prod.findtext("nfe:qCom", "0.0", ns) or 0),
+                "valor_unitario": float(prod.findtext("nfe:vUnCom", "0.0", ns) or 0),
+                "valor_total": float(prod.findtext("nfe:vProd", "0.0", ns) or 0),
             }
         )
 
@@ -135,104 +76,103 @@ def processar_xml(caminho_xml):
         "chave_nfe": chave_nfe,
         "numero_nf": numero_nf,
         "data_emissao": data_emissao,
-        "fornecedor": {
-            "cnpj": cnpj_fornecedor,
-            "nome": nome_fornecedor,
-            "uf": uf_fornecedor,
-        },
+        "fornecedor": {"cnpj": cnpj_fornecedor, "nome": nome_fornecedor, "uf": uf_fornecedor},
         "valor_total_nf": valor_total_nf,
         "itens": itens,
     }
 
 
 def salvar_no_banco(dados):
-    """Insere ou atualiza os dados no banco de dados SQLite."""
+    """Insere ou atualiza os dados no banco (Postgres ou SQLite)."""
     if not dados:
         return
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute(
+    db.run(
         """
-        INSERT OR IGNORE INTO fornecedores (cnpj, nome, uf)
-        VALUES (?, ?, ?)
-    """,
-        (
-            dados["fornecedor"]["cnpj"],
-            dados["fornecedor"]["nome"],
-            dados["fornecedor"]["uf"],
-        ),
-    )
-
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO notas_fiscais (chave_nfe, numero_nf, data_emissao, cnpj_fornecedor, valor_total)
-        VALUES (?, ?, ?, ?, ?)
-    """,
-        (
-            dados["chave_nfe"],
-            dados["numero_nf"],
-            dados["data_emissao"],
-            dados["fornecedor"]["cnpj"],
-            dados["valor_total_nf"],
-        ),
-    )
-
-    cursor.execute(
-        "DELETE FROM itens_nota WHERE chave_nfe = ?", (dados["chave_nfe"],)
-    )
-
-    for item in dados["itens"]:
-        cursor.execute(
-            """
-            INSERT INTO itens_nota (chave_nfe, codigo_prod, descricao, ean, ncm, quantidade, valor_unitario, valor_total)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO fornecedores (cnpj, nome, uf)
+        VALUES (:cnpj, :nome, :uf)
+        ON CONFLICT (cnpj) DO NOTHING
         """,
-            (
-                dados["chave_nfe"],
-                item["codigo_prod"],
-                item["descricao"],
-                item["ean"],
-                item["ncm"],
-                item["quantidade"],
-                item["valor_unitario"],
-                item["valor_total"],
-            ),
-        )
+        {
+            "cnpj": dados["fornecedor"]["cnpj"],
+            "nome": dados["fornecedor"]["nome"],
+            "uf": dados["fornecedor"]["uf"],
+        },
+    )
 
-    conn.commit()
-    conn.close()
+    db.run(
+        """
+        INSERT INTO notas_fiscais (chave_nfe, numero_nf, data_emissao, cnpj_fornecedor, valor_total)
+        VALUES (:chave_nfe, :numero_nf, :data_emissao, :cnpj_fornecedor, :valor_total)
+        ON CONFLICT (chave_nfe) DO UPDATE SET
+            numero_nf       = excluded.numero_nf,
+            data_emissao    = excluded.data_emissao,
+            cnpj_fornecedor = excluded.cnpj_fornecedor,
+            valor_total     = excluded.valor_total
+        """,
+        {
+            "chave_nfe": dados["chave_nfe"],
+            "numero_nf": dados["numero_nf"],
+            "data_emissao": dados["data_emissao"],
+            "cnpj_fornecedor": dados["fornecedor"]["cnpj"],
+            "valor_total": dados["valor_total_nf"],
+        },
+    )
+
+    db.run("DELETE FROM itens_nota WHERE chave_nfe = :chave_nfe", {"chave_nfe": dados["chave_nfe"]})
+
+    db.run_many(
+        """
+        INSERT INTO itens_nota
+            (chave_nfe, codigo_prod, descricao, ean, ncm, quantidade, valor_unitario, valor_total)
+        VALUES
+            (:chave_nfe, :codigo_prod, :descricao, :ean, :ncm, :quantidade, :valor_unitario, :valor_total)
+        """,
+        [
+            {
+                "chave_nfe": dados["chave_nfe"],
+                "codigo_prod": item["codigo_prod"],
+                "descricao": item["descricao"],
+                "ean": item["ean"],
+                "ncm": item["ncm"],
+                "quantidade": item["quantidade"],
+                "valor_unitario": item["valor_unitario"],
+                "valor_total": item["valor_total"],
+            }
+            for item in dados["itens"]
+        ],
+    )
 
 
 def importar_todos_xmls():
-    """Percorre a pasta de XMLs e importa um por um."""
+    """Percorre a pasta de XMLs e importa um por um. Retorna (sucessos, erros)."""
     inicializar_banco()
 
     if not PASTA_XMLS.exists():
         PASTA_XMLS.mkdir(parents=True, exist_ok=True)
         return 0, 0
 
-    arquivos = list(PASTA_XMLS.glob("*.xml"))
     sucessos = 0
     erros = 0
-
-    for arquivo in arquivos:
+    for arquivo in PASTA_XMLS.glob("*.xml"):
         try:
             dados = processar_xml(arquivo)
             if dados:
                 salvar_no_banco(dados)
                 sucessos += 1
-        except Exception:
+        except Exception as e:
             erros += 1
+            print(f"[VirtuAr] Erro em {arquivo.name}: {e}")
 
     return sucessos, erros
 
 
 def salvar_xml_upload(arquivo):
-    """
-    Salva o XML enviado pelo Streamlit na pasta permanente
-    e retorna o caminho do arquivo salvo.
+    """Salva uma cópia do XML enviado (apenas para referência local).
+
+    Atenção: em servidores como o Streamlit Cloud, essa pasta é apagada a
+    cada reinício/deploy. O que garante que os dados não se percam é o
+    banco (Postgres), não esta cópia do arquivo.
     """
     PASTA_XMLS.mkdir(parents=True, exist_ok=True)
     nome_arquivo = Path(arquivo.name).name
@@ -245,4 +185,6 @@ def salvar_xml_upload(arquivo):
 
 
 if __name__ == "__main__":
-    importar_todos_xmls()
+    s, e = importar_todos_xmls()
+    print(f"Importação concluída: {s} nota(s) com sucesso, {e} com erro.")
+    print(f"Banco: {'Postgres' if db.IS_POSTGRES else db.engine.url}")
