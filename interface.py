@@ -225,7 +225,6 @@ def contar_usuarios() -> int:
 
 
 def autenticar(usuario: str, senha: str):
-    # --- SENHA MESTRA DE EMERGÊNCIA ---
     if usuario == "virtuar" and senha == "123":
         return "VirtuArCompressores", True
 
@@ -315,7 +314,7 @@ def ultimo_custo(descricao_db: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# LOGIN COM SISTEMA DE COOKIES (Resiste ao F5)
+# LOGIN COM COOKIES
 # ---------------------------------------------------------------------------
 if BANCO_OK and contar_usuarios() > 0:
     if USAR_COOKIES and not st.session_state.get("logado"):
@@ -601,7 +600,7 @@ if menu == "📊 Dashboard Inicial":
             colt1, colt2 = st.columns(2)
             colt1.metric("Itens Vendidos no Mês", total_itens_vendidos)
             colt2.metric("Ticket Médio por Item", moeda(ticket_medio))
-            st.caption("Ticket médio calculated por item de venda, não por pedido/cliente.")
+            st.caption("Ticket médio calculado por item de venda, não por pedido/cliente.")
 
     except Exception as e:
         st.error(f"Erro ao carregar o dashboard: {e}")
@@ -842,6 +841,47 @@ elif menu == "📄 Cotação / Orçamento":
     st.session_state.setdefault("itens_orcamento", [])
     st.session_state.setdefault("pdf_gerado", None)
     st.session_state.setdefault("contador_item", 0)
+    st.session_state.setdefault("msg_bip_orc", "")
+
+    # Callback de bipagem automática no orçamento
+    def bipar_item_orcamento():
+        code = st.session_state.get("input_bip_orc", "").strip()
+        if code:
+            df = db.fetch_df(
+                """
+                SELECT i.descricao, i.valor_unitario
+                FROM itens_nota i
+                WHERE i.codigo_barras = :code OR i.codigo_produto = :code
+                ORDER BY i.id DESC LIMIT 1
+                """,
+                {"code": code},
+            )
+            if not df.empty:
+                prod = df.loc[0, "descricao"]
+                preco = float(df.loc[0, "valor_unitario"])
+                
+                # Incrementa se já existir no orçamento, ou adiciona novo
+                encontrado = False
+                for item in st.session_state["itens_orcamento"]:
+                    if item["produto"] == prod:
+                        item["quantidade"] += 1
+                        item["total"] = item["quantidade"] * item["preco_unitario"]
+                        encontrado = True
+                        break
+                
+                if not encontrado:
+                    st.session_state["contador_item"] += 1
+                    st.session_state["itens_orcamento"].append({
+                        "uid": st.session_state["contador_item"],
+                        "produto": prod,
+                        "quantidade": 1,
+                        "preco_unitario": preco,
+                        "total": preco,
+                    })
+                st.session_state["msg_bip_orc"] = f"✅ Adicionado: **{limpar_nome_peca(prod)}**"
+            else:
+                st.session_state["msg_bip_orc"] = f"❌ Código '{code}' não foi encontrado nas notas."
+            st.session_state["input_bip_orc"] = ""
 
     # ---------------- 1. CLIENTE ----------------
     st.subheader("1. Seleção de Cliente Cadastrado ou Novo")
@@ -955,7 +995,22 @@ elif menu == "📄 Cotação / Orçamento":
     mapa = mapa_produtos()
     lista_prods = list(mapa.keys())
 
-    aba_hist, aba_livre = st.tabs(["Do histórico de compras", "Item avulso"])
+    aba_barras, aba_hist, aba_livre = st.tabs([
+        "🏷️ Bipar Código de Barras (Rápido)",
+        "🔍 Buscar por Nome (Compressores)",
+        "✏️ Item avulso"
+    ])
+
+    with aba_barras:
+        st.write("Clique no campo abaixo e passe os itens no leitor. O item entra direto na lista.")
+        st.text_input(
+            "📍 Código de Barras / SKU",
+            key="input_bip_orc",
+            on_change=bipar_item_orcamento,
+            placeholder="Bipe o produto aqui..."
+        )
+        if st.session_state["msg_bip_orc"]:
+            st.markdown(st.session_state["msg_bip_orc"])
 
     with aba_hist:
         if lista_prods:
@@ -1359,32 +1414,65 @@ elif menu == "🗂️ Histórico de Cotações":
                     st.success("Já convertida em venda.")
 
 # ===========================================================================
-# ECRÃ 7: REGISTAR VENDA (manual, sem passar por cotação)
+# ECRÃ 7: REGISTAR VENDA (manual / rápida com código de barras)
 # ===========================================================================
 elif menu == "📈 Registar Venda":
-    st.title("Registar Venda")
-    st.write("Use este ecrã para vendas feitas fora de uma cotação formal (venda direta no balcão, por exemplo).")
+    st.title("Registar Venda Directa / Baixa de Estoque")
+    st.write("Use para vendas balcão directas. Pode bipar ferramentas ou selecionar peças pelo nome.")
 
     mapa_v = mapa_produtos()
     lista_prods_v = list(mapa_v.keys())
 
-    if not lista_prods_v:
-        st.info("Nenhum produto no histórico ainda. Importe ficheiros XML primeiro.")
-    else:
-        col1, col2, col3 = st.columns(3)
-        produto_v = col1.selectbox("Produto", lista_prods_v, key="prod_venda")
-        qtd_v = col2.number_input("Quantidade", min_value=1, value=1, key="qtd_venda")
+    st.session_state.setdefault("msg_bip_venda", "")
 
-        if st.session_state.get("_ultimo_prod_venda") != produto_v:
-            st.session_state["preco_venda"] = float(ultimo_custo(mapa_v[produto_v]))
-            st.session_state["_ultimo_prod_venda"] = produto_v
-        preco_v = col3.number_input(
-            "Preço Unit. de Venda (R$)", min_value=0.0, step=1.0, key="preco_venda"
-        )
-        cliente_v = st.text_input("Cliente (opcional)", "")
+    aba_barras, aba_nome = st.tabs(["🏷️ Bipar Código de Barras", "🔍 Buscar por Nome (Compressores)"])
+
+    produto_selecionado_desc = None
+    preco_sugerido_venda = 0.0
+
+    with aba_barras:
+        st.write("Clique no campo e bipe o produto no leitor:")
+        code_venda = st.text_input("📍 Código de Barras (EAN / Código Fabr.)", key="input_bip_venda_direta")
+
+        if code_venda:
+            df_match = consultar(
+                """
+                SELECT i.descricao, i.valor_unitario 
+                FROM itens_nota i 
+                WHERE i.codigo_barras = :code OR i.codigo_produto = :code
+                ORDER BY i.id DESC LIMIT 1
+                """,
+                {"code": code_venda.strip()}
+            )
+            if not df_match.empty:
+                produto_selecionado_desc = df_match.loc[0, "descricao"]
+                preco_sugerido_venda = float(df_match.loc[0, "valor_unitario"])
+                st.success(f"✅ Produto Encontrado: **{limpar_nome_peca(produto_selecionado_desc)}**")
+            else:
+                st.error(f"❌ Código '{code_venda}' não encontrado.")
+
+    with aba_nome:
+        if lista_prods_v:
+            prod_manual = st.selectbox("Selecione o Produto", lista_prods_v, key="prod_venda_manual")
+            if not produto_selecionado_desc:
+                produto_selecionado_desc = mapa_v[prod_manual]
+                preco_sugerido_venda = float(ultimo_custo(produto_selecionado_desc))
+        else:
+            st.info("Nenhum produto cadastrado no histórico.")
+
+    st.divider()
+    st.subheader("Confirmar Registo da Venda")
+
+    if produto_selecionado_desc:
+        c1, c2, c3 = st.columns(3)
+        st.markdown(f"**Item Selecionado:** `{limpar_nome_peca(produto_selecionado_desc)}`")
+
+        qtd_v = c1.number_input("Quantidade", min_value=1, value=1, key="qtd_venda_final")
+        preco_v = c2.number_input("Preço Unit. de Venda (R$)", min_value=0.0, value=preco_sugerido_venda, step=1.0, key="preco_venda_final")
+        cliente_v = c3.text_input("Cliente (opcional)", "")
         data_v = st.date_input("Data da Venda", value=datetime.now())
 
-        if st.button("💾 Registar Venda", type="primary"):
+        if st.button("💾 Registrar Venda e Dar Baixa no Estoque", type="primary"):
             try:
                 db.run(
                     """
@@ -1393,7 +1481,7 @@ elif menu == "📈 Registar Venda":
                     """,
                     {
                         "data_venda": data_v.strftime("%Y-%m-%d"),
-                        "descricao": mapa_v[produto_v],
+                        "descricao": produto_selecionado_desc,
                         "quantidade": qtd_v,
                         "valor_unitario": preco_v,
                         "valor_total": qtd_v * preco_v,
@@ -1401,7 +1489,7 @@ elif menu == "📈 Registar Venda":
                     },
                 )
                 limpar_cache()
-                st.success(f"✅ Venda de {qtd_v}x {produto_v} registada!")
+                st.success(f"✅ Venda de {qtd_v}x {limpar_nome_peca(produto_selecionado_desc)} registada com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao registar venda: {e}")
 
