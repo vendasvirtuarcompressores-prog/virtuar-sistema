@@ -22,6 +22,15 @@ try:
 except Exception:
     requests = None
 
+# Tenta carregar o controlador de cookies para evitar deslogar no F5
+try:
+    from streamlit_cookies_controller import CookieController
+    controller = CookieController()
+    USAR_COOKIES = True
+except Exception:
+    USAR_COOKIES = False
+    controller = None
+
 import db
 
 # ---------------------------------------------------------------------------
@@ -220,13 +229,11 @@ def contar_usuarios() -> int:
 
 def autenticar(usuario: str, senha: str):
     # --- SENHA MESTRA DE EMERGÊNCIA ---
-    # Use isto se esquecer a senha ou se o utilizador original ficar bloqueado
     if usuario == "virtuar" and senha == "123":
         return "VirtuArCompressores", True
     # ----------------------------------
 
     try:
-        # Usa SELECT * para não quebrar caso a coluna 'admin' não tenha sido criada no banco
         df = db.fetch_df(
             "SELECT * FROM usuarios WHERE usuario = :u AND senha_hash = :h",
             {"u": usuario.strip(), "h": hash_senha(senha)},
@@ -234,21 +241,15 @@ def autenticar(usuario: str, senha: str):
         if not df.empty:
             linha = df.iloc[0]
             nome = linha.get("nome_exibicao") or linha["usuario"]
-            
-            # Verifica se a coluna admin existe antes de tentar ler, evitando erros
             eh_admin = bool(linha["admin"]) if "admin" in df.columns else True
-            
             return nome, eh_admin
-            
     except Exception as e:
-        # Mostra o erro real no ecrã de login em vez de falhar em silêncio
         st.error(f"Erro no banco ao tentar fazer login: {e}")
         
     return None, False
 
 
 def buscar_cnpj(cnpj: str):
-    """Consulta dados públicos de um CNPJ via BrasilAPI. Retorna dict ou None."""
     if requests is None:
         return None
     numeros = re.sub(r"\D", "", cnpj or "")
@@ -274,7 +275,6 @@ def buscar_cnpj(cnpj: str):
 
 @st.cache_data(ttl=120, show_spinner=False)
 def calcular_estoque() -> pd.DataFrame:
-    """Estoque = total comprado (itens_nota) - total vendido (vendas), por produto."""
     comprado = db.fetch_df(
         "SELECT descricao, SUM(quantidade) AS comprado FROM itens_nota GROUP BY descricao"
     )
@@ -319,26 +319,46 @@ def ultimo_custo(descricao_db: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# LOGIN (opcional): só é exigido depois que o primeiro utilizador for criado
-# em "👥 Usuários". Antes disso, o app funciona exatamente como hoje.
+# LOGIN COM SISTEMA DE COOKIES (Resiste ao F5)
 # ---------------------------------------------------------------------------
-if BANCO_OK and contar_usuarios() > 0 and not st.session_state.get("logado"):
-    st.title("🔒 VirtuAr - Login")
-    with st.form("login_form"):
-        usuario_login = st.text_input("Usuário")
-        senha_login = st.text_input("Senha", type="password")
-        entrar = st.form_submit_button("Entrar", type="primary")
-    if entrar:
-        nome, eh_admin = autenticar(usuario_login, senha_login)
-        if nome:
+if BANCO_OK and contar_usuarios() > 0:
+    
+    # 1. Tenta recuperar sessão salva no cookie (navegador)
+    if USAR_COOKIES and not st.session_state.get("logado"):
+        cookie_user = controller.get("virtuar_user")
+        cookie_admin = controller.get("virtuar_admin")
+        
+        if cookie_user:
             st.session_state["logado"] = True
-            st.session_state["usuario_logado"] = nome
-            st.session_state["admin"] = eh_admin
-            st.rerun()
-        else:
-            st.error("Utilizador ou senha incorretos.")
-    st.stop()
+            st.session_state["usuario_logado"] = cookie_user
+            st.session_state["admin"] = (str(cookie_admin) == "True")
 
+    # 2. Se não encontrou cookie, exige o formulário
+    if not st.session_state.get("logado"):
+        st.title("🔒 VirtuAr - Login")
+        with st.form("login_form"):
+            usuario_login = st.text_input("Usuário")
+            senha_login = st.text_input("Senha", type="password")
+            entrar = st.form_submit_button("Entrar", type="primary")
+        
+        if entrar:
+            nome, eh_admin = autenticar(usuario_login, senha_login)
+            if nome:
+                st.session_state["logado"] = True
+                st.session_state["usuario_logado"] = nome
+                st.session_state["admin"] = eh_admin
+                
+                # Salva no navegador para resistir ao F5
+                if USAR_COOKIES:
+                    controller.set("virtuar_user", nome)
+                    controller.set("virtuar_admin", str(eh_admin))
+                    
+                st.rerun()
+            else:
+                st.error("Utilizador ou senha incorretos.")
+        st.stop()
+
+# Garantia genérica caso não haja usuários cadastrados ainda
 st.session_state.setdefault("admin", True)
 
 
@@ -379,27 +399,20 @@ st.sidebar.markdown("---")
 
 st.sidebar.markdown("**Navegação**")
 
-# --- REGRA DE ACESSO AO DASHBOARD ---
-# Pode ver o dashboard quem for admin, ou se não houver login ativado (admin = True por padrão),
-# ou especificamente o seu utilizador VirtuArCompressores.
 eh_admin = st.session_state.get("admin", True)
 usuario_atual = st.session_state.get("usuario_logado", "")
 pode_ver_dashboard = (eh_admin or usuario_atual == "VirtuArCompressores")
 
-# Define a janela padrão. Se o utilizador não puder ver o Dashboard, o ecrã inicial será "Consultas"
 tela_padrao = "📊 Dashboard Inicial" if pode_ver_dashboard else "🔍 Consultas e Filtros"
 
-# Se o utilizador entrar e estiver bloqueado no ecrã de Dashboard por causa do cache, passa-o para fora
 if "menu_atual" not in st.session_state or (not pode_ver_dashboard and st.session_state["menu_atual"] == "📊 Dashboard Inicial"):
     st.session_state["menu_atual"] = tela_padrao
 
 CATEGORIAS_MENU = {}
 
-# Só inclui a categoria do Dashboard se tiver permissão
 if pode_ver_dashboard:
     CATEGORIAS_MENU["🏠 O Meu Negócio"] = ["📊 Dashboard Inicial"]
 
-# O restante do menu fica disponível para a equipa
 CATEGORIAS_MENU.update({
     "🛒 Compras": ["📤 Upload de XML", "🔍 Consultas e Filtros"],
     "💰 Vendas": ["📄 Cotação / Orçamento", "🗂️ Histórico de Cotações", "📈 Registar Venda"],
@@ -408,7 +421,6 @@ CATEGORIAS_MENU.update({
     "⚙️ Configurações": ["👥 Usuários"],
 })
 
-# Criação visual do menu (Accordion)
 for categoria, itens in CATEGORIAS_MENU.items():
     aberto_por_padrao = st.session_state["menu_atual"] in itens
     with st.sidebar.expander(categoria, expanded=aberto_por_padrao):
@@ -429,8 +441,13 @@ st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Atualizar dados (limpar cache)"):
     limpar_cache()
     st.rerun()
+
+# --- BOTÃO DE SAIR AGORA APAGA O COOKIE TAMBÉM ---
 if st.session_state.get("logado") and st.sidebar.button("🚪 Sair"):
     st.session_state["logado"] = False
+    if USAR_COOKIES:
+        controller.remove("virtuar_user")
+        controller.remove("virtuar_admin")
     st.rerun()
 
 if not BANCO_OK:
@@ -498,7 +515,6 @@ if menu == "📊 Dashboard Inicial":
                 pass
             st.dataframe(df_ultimas, use_container_width=True, hide_index=True)
 
-        # --- Lucro real (precisa de vendas registadas em "📈 Registar Venda") ---
         df_vendas_mes = consultar(
             "SELECT COALESCE(SUM(valor_total), 0) AS total FROM vendas "
             "WHERE substr(data_venda, 1, 7) = :competencia",
@@ -523,7 +539,6 @@ if menu == "📊 Dashboard Inicial":
                 "não só o gasto."
             )
 
-        # --- Gráfico de compras por dia no mês, estilo painel Bling ---
         st.divider()
         st.subheader("📈 Compras por Dia (Mês Atual)")
         df_compras_dia = consultar(
@@ -537,7 +552,6 @@ if menu == "📊 Dashboard Inicial":
         else:
             st.caption("Sem compras registadas neste mês ainda.")
 
-        # --- Vendas por dia e ticket médio, se houver vendas registadas ---
         df_vendas_dia = consultar(
             "SELECT data_venda AS data, SUM(valor_total) AS total, COUNT(*) AS qtd FROM vendas "
             "WHERE substr(data_venda, 1, 7) = :competencia GROUP BY data_venda ORDER BY data_venda",
@@ -831,8 +845,6 @@ elif menu == "📄 Cotação / Orçamento":
 
     st.subheader("3. Dados do Cliente e Logística")
 
-    # Os campos usam chaves fixas para que a busca por CNPJ possa preenchê-los
-    # automaticamente. Ao trocar de cliente selecionado acima, reinicializa os valores.
     if st.session_state.get("_ultimo_cliente_sel") != cliente_escolhido:
         st.session_state["nome_cliente_input"] = v["nome"]
         st.session_state["cnpj_cliente_input"] = v["cnpj"]
@@ -917,10 +929,6 @@ elif menu == "📄 Cotação / Orçamento":
             prod_escolhido = i1.selectbox("Selecione a Peça", lista_prods, key="sel_prod_orc")
             custo_bd = ultimo_custo(mapa[prod_escolhido]) if prod_escolhido else 0.0
 
-            # O campo de preço guarda o último valor digitado (via "key").
-            # Sem isto, ele não percebe que a peça mudou e continua mostrando
-            # o preço da peça anterior. Aqui detetamos a troca e forçamos
-            # o campo a assumir o novo custo sugerido.
             if st.session_state.get("_ultimo_prod_hist") != prod_escolhido:
                 st.session_state["preco_hist"] = float(custo_bd)
                 st.session_state["_ultimo_prod_hist"] = prod_escolhido
@@ -1169,7 +1177,6 @@ elif menu == "📄 Cotação / Orçamento":
                     saida = saida.encode("latin-1")
                 st.session_state["pdf_gerado"] = (bytes(saida), f"Orcamento_{num_cotacao}.pdf")
 
-                # --- Salva a cotação no histórico (ecrã "🗂️ Histórico de Cotações") ---
                 try:
                     itens_para_salvar = [
                         {k: v for k, v in item.items() if k != "uid"}
@@ -1484,7 +1491,6 @@ elif menu == "👥 Usuários":
                 colu1.write(f"**{u['usuario']}**")
                 colu2.write(u["nome_exibicao"])
                 
-                # Previne quebra caso a coluna admin ainda não esteja lá
                 status_admin = bool(u["admin"]) if "admin" in u else True 
                 
                 if status_admin:
