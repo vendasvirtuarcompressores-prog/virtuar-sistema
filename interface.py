@@ -272,20 +272,33 @@ st.sidebar.caption(
 )
 st.sidebar.markdown("---")
 
-menu = st.sidebar.radio(
-    "Navegação",
-    [
-        "📊 Dashboard Inicial",
-        "🔍 Consultas e Filtros",
-        "📤 Upload de XML",
-        "💰 Calculadora de Preços",
-        "📄 Cotação / Orçamento",
-        "🗂️ Histórico de Cotações",
-        "📈 Registrar Venda",
-        "📦 Estoque",
-        "👥 Usuários",
-    ],
-)
+st.sidebar.markdown("**Navegação**")
+st.session_state.setdefault("menu_atual", "📊 Dashboard Inicial")
+
+CATEGORIAS_MENU = {
+    "🏠 Meu Negócio": ["📊 Dashboard Inicial"],
+    "🛒 Compras": ["📤 Upload de XML", "🔍 Consultas e Filtros"],
+    "💰 Vendas": ["📄 Cotação / Orçamento", "🗂️ Histórico de Cotações", "📈 Registrar Venda"],
+    "📦 Estoque": ["📦 Estoque"],
+    "🧮 Financeiro": ["💰 Calculadora de Preços"],
+    "⚙️ Configurações": ["👥 Usuários"],
+}
+
+for categoria, itens in CATEGORIAS_MENU.items():
+    aberto_por_padrao = st.session_state["menu_atual"] in itens
+    with st.sidebar.expander(categoria, expanded=aberto_por_padrao):
+        for item in itens:
+            eh_atual = item == st.session_state["menu_atual"]
+            if st.button(
+                item,
+                key=f"nav_{item}",
+                use_container_width=True,
+                type="primary" if eh_atual else "secondary",
+            ):
+                st.session_state["menu_atual"] = item
+                st.rerun()
+
+menu = st.session_state["menu_atual"]
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Atualizar dados (limpar cache)"):
@@ -384,6 +397,38 @@ if menu == "📊 Dashboard Inicial":
                 "💡 Registre suas vendas em '📈 Registrar Venda' para ver o lucro real aqui, "
                 "não só o gasto."
             )
+
+        # --- Gráfico de compras por dia no mês, estilo painel Bling ---
+        st.divider()
+        st.subheader("📈 Compras por Dia (Mês Atual)")
+        df_compras_dia = consultar(
+            "SELECT data_emissao AS data, SUM(valor_total) AS total FROM notas_fiscais "
+            "WHERE substr(data_emissao, 1, 7) = :competencia GROUP BY data_emissao ORDER BY data_emissao",
+            {"competencia": competencia},
+        )
+        if not df_compras_dia.empty:
+            df_compras_dia["data"] = pd.to_datetime(df_compras_dia["data"])
+            st.area_chart(df_compras_dia.set_index("data")["total"])
+        else:
+            st.caption("Sem compras registradas neste mês ainda.")
+
+        # --- Vendas por dia e ticket médio, se houver vendas registradas ---
+        df_vendas_dia = consultar(
+            "SELECT data_venda AS data, SUM(valor_total) AS total, COUNT(*) AS qtd FROM vendas "
+            "WHERE substr(data_venda, 1, 7) = :competencia GROUP BY data_venda ORDER BY data_venda",
+            {"competencia": competencia},
+        )
+        if not df_vendas_dia.empty:
+            st.subheader("📈 Vendas por Dia (Mês Atual)")
+            df_vendas_dia["data"] = pd.to_datetime(df_vendas_dia["data"])
+            st.area_chart(df_vendas_dia.set_index("data")["total"])
+
+            total_itens_vendidos = int(df_vendas_dia["qtd"].sum())
+            ticket_medio = total_vendido_mes / total_itens_vendidos if total_itens_vendidos else 0
+            colt1, colt2 = st.columns(2)
+            colt1.metric("Itens Vendidos no Mês", total_itens_vendidos)
+            colt2.metric("Ticket Médio por Item", moeda(ticket_medio))
+            st.caption("Ticket médio calculado por item de venda, não por pedido/cliente.")
 
     except Exception as e:
         st.error(f"Erro ao carregar o dashboard: {e}")
