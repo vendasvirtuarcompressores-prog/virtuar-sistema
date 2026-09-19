@@ -278,20 +278,22 @@ def buscar_cnpj(cnpj: str):
 
 def buscar_produto_por_codigo(code_raw: str) -> pd.DataFrame:
     """Busca flexível por SKU do fornecedor ou Código de Barras (EAN).
-    Remove espaços, quebras de linha e zeros à esquerda.
+    Totalmente compatível com PostgreSQL e SQLite.
     """
     if not code_raw:
         return pd.DataFrame()
         
     code = str(code_raw).strip()
     code_sem_zero = code.lstrip("0")
+    if not code_sem_zero:
+        code_sem_zero = code
     code_like = f"%{code}%"
 
     query = """
         SELECT i.descricao, i.valor_unitario
         FROM itens_nota i
-        WHERE TRIM(REPLACE(REPLACE(i.codigo_prod, CHAR(13), ''), CHAR(10), '')) = :code
-           OR TRIM(REPLACE(REPLACE(i.ean, CHAR(13), ''), CHAR(10), '')) = :code
+        WHERE TRIM(i.codigo_prod) = :code
+           OR TRIM(i.ean) = :code
            OR LTRIM(TRIM(i.codigo_prod), '0') = :code_sem_zero
            OR LTRIM(TRIM(i.ean), '0') = :code_sem_zero
            OR i.codigo_prod LIKE :code_like
@@ -302,7 +304,7 @@ def buscar_produto_por_codigo(code_raw: str) -> pd.DataFrame:
         query,
         {
             "code": code,
-            "code_sem_zero": code_sem_zero if code_sem_zero else code,
+            "code_sem_zero": code_sem_zero,
             "code_like": code_like,
         },
     )
@@ -640,7 +642,7 @@ if menu == "📊 Dashboard Inicial":
             colt1, colt2 = st.columns(2)
             colt1.metric("Itens Vendidos no Mês", total_itens_vendidos)
             colt2.metric("Ticket Médio por Item", moeda(ticket_medio))
-            st.caption("Ticket médio calculated por item de venda, não por pedido/cliente.")
+            st.caption("Ticket médio calculado por item de venda, não por pedido/cliente.")
 
     except Exception as e:
         st.error(f"Erro ao carregar o dashboard: {e}")
@@ -1482,7 +1484,7 @@ elif menu == "📈 Registar Venda":
                 produto_selecionado_desc = mapa_v[prod_manual]
                 preco_sugerido_venda = float(ultimo_custo(produto_selecionado_desc))
         else:
-            st.info("Nenum produto cadastrado no histórico.")
+            st.info("Nenhum produto cadastrado no histórico.")
 
     st.divider()
     st.subheader("Confirmar Registo da Venda")
