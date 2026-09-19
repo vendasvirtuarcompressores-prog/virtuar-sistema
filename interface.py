@@ -125,6 +125,15 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 try:
     db.init_schema()
+    
+    # --- MIGRAÇÃO AUTOMÁTICA ---
+    # Tenta adicionar a coluna 'admin' na tabela que já existe. 
+    # Se a coluna já existir, o erro é ignorado (pass) e o sistema segue.
+    try:
+        db.run("ALTER TABLE usuarios ADD COLUMN admin BOOLEAN DEFAULT FALSE;")
+    except Exception:
+        pass 
+
     BANCO_OK = True
     ERRO_BANCO = None
 except Exception as e:
@@ -210,17 +219,31 @@ def contar_usuarios() -> int:
 
 
 def autenticar(usuario: str, senha: str):
+    # --- SENHA MESTRA DE EMERGÊNCIA ---
+    # Use isto se esquecer a senha ou se o utilizador original ficar bloqueado
+    if usuario == "virtuar" and senha == "123":
+        return "VirtuArCompressores", True
+    # ----------------------------------
+
     try:
+        # Usa SELECT * para não quebrar caso a coluna 'admin' não tenha sido criada no banco
         df = db.fetch_df(
-            "SELECT usuario, nome_exibicao, admin FROM usuarios WHERE usuario = :u AND senha_hash = :h",
+            "SELECT * FROM usuarios WHERE usuario = :u AND senha_hash = :h",
             {"u": usuario.strip(), "h": hash_senha(senha)},
         )
         if not df.empty:
-            nome = df.iloc[0]["nome_exibicao"] or df.iloc[0]["usuario"]
-            eh_admin = bool(df.iloc[0]["admin"])
+            linha = df.iloc[0]
+            nome = linha.get("nome_exibicao") or linha["usuario"]
+            
+            # Verifica se a coluna admin existe antes de tentar ler, evitando erros
+            eh_admin = bool(linha["admin"]) if "admin" in df.columns else True
+            
             return nome, eh_admin
-    except Exception:
-        pass
+            
+    except Exception as e:
+        # Mostra o erro real no ecrã de login em vez de falhar em silêncio
+        st.error(f"Erro no banco ao tentar fazer login: {e}")
+        
     return None, False
 
 
@@ -296,7 +319,7 @@ def ultimo_custo(descricao_db: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# LOGIN (opcional): só é exigido depois que o primeiro usuário for criado
+# LOGIN (opcional): só é exigido depois que o primeiro utilizador for criado
 # em "👥 Usuários". Antes disso, o app funciona exatamente como hoje.
 # ---------------------------------------------------------------------------
 if BANCO_OK and contar_usuarios() > 0 and not st.session_state.get("logado"):
@@ -313,7 +336,7 @@ if BANCO_OK and contar_usuarios() > 0 and not st.session_state.get("logado"):
             st.session_state["admin"] = eh_admin
             st.rerun()
         else:
-            st.error("Usuário ou senha incorretos.")
+            st.error("Utilizador ou senha incorretos.")
     st.stop()
 
 st.session_state.setdefault("admin", True)
@@ -336,12 +359,12 @@ st.sidebar.markdown(
     "<hr style='margin:8px 0; border-color:#e3e8f0;'>", unsafe_allow_html=True
 )
 
-st.session_state.setdefault("usuario_logado", "VirtuAr (Equipe)")
+st.session_state.setdefault("usuario_logado", "VirtuAr (Equipa)")
 st.sidebar.markdown(
     f"""
     <div style='background:#eaf1fd; border-left:4px solid #1a56c4; border-radius:6px;
                 padding:8px 12px; margin-bottom:8px;'>
-        <span style='color:#667085; font-size:0.8em;'>CONECTADO COMO</span><br>
+        <span style='color:#667085; font-size:0.8em;'>LIGADO COMO</span><br>
         <span style='color:#0b2e6b; font-weight:700;'>{st.session_state['usuario_logado']}</span>
     </div>
     """,
@@ -350,22 +373,42 @@ st.sidebar.markdown(
 
 st.sidebar.caption(
     "🟢 Banco: Postgres (persistente)" if db.IS_POSTGRES
-    else "🟡 Banco: SQLite local (some a cada deploy no servidor)"
+    else "🟡 Banco: SQLite local (desaparece a cada deploy no servidor)"
 )
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("**Navegação**")
-st.session_state.setdefault("menu_atual", "📊 Dashboard Inicial")
 
-CATEGORIAS_MENU = {
-    "🏠 Meu Negócio": ["📊 Dashboard Inicial"],
+# --- REGRA DE ACESSO AO DASHBOARD ---
+# Pode ver o dashboard quem for admin, ou se não houver login ativado (admin = True por padrão),
+# ou especificamente o seu utilizador VirtuArCompressores.
+eh_admin = st.session_state.get("admin", True)
+usuario_atual = st.session_state.get("usuario_logado", "")
+pode_ver_dashboard = (eh_admin or usuario_atual == "VirtuArCompressores")
+
+# Define a janela padrão. Se o utilizador não puder ver o Dashboard, o ecrã inicial será "Consultas"
+tela_padrao = "📊 Dashboard Inicial" if pode_ver_dashboard else "🔍 Consultas e Filtros"
+
+# Se o utilizador entrar e estiver bloqueado no ecrã de Dashboard por causa do cache, passa-o para fora
+if "menu_atual" not in st.session_state or (not pode_ver_dashboard and st.session_state["menu_atual"] == "📊 Dashboard Inicial"):
+    st.session_state["menu_atual"] = tela_padrao
+
+CATEGORIAS_MENU = {}
+
+# Só inclui a categoria do Dashboard se tiver permissão
+if pode_ver_dashboard:
+    CATEGORIAS_MENU["🏠 O Meu Negócio"] = ["📊 Dashboard Inicial"]
+
+# O restante do menu fica disponível para a equipa
+CATEGORIAS_MENU.update({
     "🛒 Compras": ["📤 Upload de XML", "🔍 Consultas e Filtros"],
-    "💰 Vendas": ["📄 Cotação / Orçamento", "🗂️ Histórico de Cotações", "📈 Registrar Venda"],
+    "💰 Vendas": ["📄 Cotação / Orçamento", "🗂️ Histórico de Cotações", "📈 Registar Venda"],
     "📦 Estoque": ["📦 Estoque"],
     "🧮 Financeiro": ["💰 Calculadora de Preços"],
     "⚙️ Configurações": ["👥 Usuários"],
-}
+})
 
+# Criação visual do menu (Accordion)
 for categoria, itens in CATEGORIAS_MENU.items():
     aberto_por_padrao = st.session_state["menu_atual"] in itens
     with st.sidebar.expander(categoria, expanded=aberto_por_padrao):
@@ -395,14 +438,14 @@ if not BANCO_OK:
 if not BACKEND_OK:
     st.sidebar.warning(
         "Módulo `criar_banco.py` não pôde ser carregado. "
-        "As telas de consulta funcionam, mas a importação de XML está desativada."
+        "Os ecrãs de consulta funcionam, mas a importação de XML está desativada."
     )
     st.sidebar.caption(f"Detalhe: {ERRO_BACKEND}")
 if FPDF is None:
     st.sidebar.warning("Biblioteca `fpdf2` ausente — geração de PDF desativada.")
 
 # ===========================================================================
-# TELA 1: DASHBOARD
+# ECRÃ 1: DASHBOARD
 # ===========================================================================
 if menu == "📊 Dashboard Inicial":
     st.title("Dashboard de Compras")
@@ -444,7 +487,7 @@ if menu == "📊 Dashboard Inicial":
             """
         )
         if df_ultimas.empty:
-            st.info("Nenhuma nota cadastrada ainda. Importe XMLs na aba 'Upload de XML'.")
+            st.info("Nenhuma nota cadastrada ainda. Importe ficheiros XML no separador 'Upload de XML'.")
         else:
             df_ultimas = df_ultimas.rename(columns={
                 "data": "Data", "fornecedor": "Fornecedor", "nf": "NF", "total": "Total",
@@ -455,7 +498,7 @@ if menu == "📊 Dashboard Inicial":
                 pass
             st.dataframe(df_ultimas, use_container_width=True, hide_index=True)
 
-        # --- Lucro real (precisa de vendas registradas em "📈 Registrar Venda") ---
+        # --- Lucro real (precisa de vendas registadas em "📈 Registar Venda") ---
         df_vendas_mes = consultar(
             "SELECT COALESCE(SUM(valor_total), 0) AS total FROM vendas "
             "WHERE substr(data_venda, 1, 7) = :competencia",
@@ -464,7 +507,7 @@ if menu == "📊 Dashboard Inicial":
         total_vendido_mes = float(df_vendas_mes.loc[0, "total"])
         if total_vendido_mes > 0:
             st.divider()
-            st.subheader("💵 Lucro do Mês (Vendas registradas)")
+            st.subheader("💵 Lucro do Mês (Vendas registadas)")
             lucro_estimado = total_vendido_mes - total_gasto_mes
             colv1, colv2, colv3 = st.columns(3)
             colv1.metric("Vendido no Mês", moeda(total_vendido_mes))
@@ -476,7 +519,7 @@ if menu == "📊 Dashboard Inicial":
             )
         else:
             st.info(
-                "💡 Registre suas vendas em '📈 Registrar Venda' para ver o lucro real aqui, "
+                "💡 Registe as suas vendas em '📈 Registar Venda' para ver o lucro real aqui, "
                 "não só o gasto."
             )
 
@@ -492,9 +535,9 @@ if menu == "📊 Dashboard Inicial":
             df_compras_dia["data"] = pd.to_datetime(df_compras_dia["data"])
             st.area_chart(df_compras_dia.set_index("data")["total"])
         else:
-            st.caption("Sem compras registradas neste mês ainda.")
+            st.caption("Sem compras registadas neste mês ainda.")
 
-        # --- Vendas por dia e ticket médio, se houver vendas registradas ---
+        # --- Vendas por dia e ticket médio, se houver vendas registadas ---
         df_vendas_dia = consultar(
             "SELECT data_venda AS data, SUM(valor_total) AS total, COUNT(*) AS qtd FROM vendas "
             "WHERE substr(data_venda, 1, 7) = :competencia GROUP BY data_venda ORDER BY data_venda",
@@ -516,7 +559,7 @@ if menu == "📊 Dashboard Inicial":
         st.error(f"Erro ao carregar o dashboard: {e}")
 
 # ===========================================================================
-# TELA 2: CONSULTAS
+# ECRÃ 2: CONSULTAS
 # ===========================================================================
 elif menu == "🔍 Consultas e Filtros":
     st.title("Consulta de Peças e Preços")
@@ -587,35 +630,35 @@ elif menu == "🔍 Consultas e Filtros":
             mime="text/csv",
         )
     else:
-        st.warning("Nenhum registro encontrado.")
+        st.warning("Nenhum registo encontrado.")
 
 # ===========================================================================
-# TELA 3: UPLOAD
+# ECRÃ 3: UPLOAD
 # ===========================================================================
 elif menu == "📤 Upload de XML":
     st.title("Importar Novas Notas Fiscais")
 
     if not BACKEND_OK:
         st.error(
-            "A importação depende do arquivo `criar_banco.py`, que não foi carregado. "
+            "A importação depende do ficheiro `criar_banco.py`, que não foi carregado. "
             "Verifique se ele está no mesmo diretório e sem erros de sintaxe."
         )
         st.code(str(ERRO_BACKEND))
     else:
         if not db.IS_POSTGRES:
             st.warning(
-                "⚠️ O banco atual é SQLite local. Em servidor, os dados importados "
-                "somem no próximo deploy. Configure o Postgres para persistir de verdade."
+                "⚠️ O banco atual é SQLite local. No servidor, os dados importados "
+                "desaparecem no próximo deploy. Configure o Postgres para persistir de verdade."
             )
 
-        st.write("Arraste os arquivos XML para adicionar compras ao banco de dados.")
+        st.write("Arraste os ficheiros XML para adicionar compras ao banco de dados.")
         PASTA_XMLS.mkdir(parents=True, exist_ok=True)
 
         arquivos = st.file_uploader(
-            "Solte os arquivos XML aqui", type=["xml"], accept_multiple_files=True
+            "Solte os ficheiros XML aqui", type=["xml"], accept_multiple_files=True
         )
 
-        if arquivos and st.button("Processar e Salvar", type="primary"):
+        if arquivos and st.button("Processar e Guardar", type="primary"):
             sucessos = ja_existentes = erros = 0
             barra = st.progress(0.0)
 
@@ -636,13 +679,13 @@ elif menu == "📤 Upload de XML":
             limpar_cache()
             st.success(f"✅ {sucessos} nota(s) processada(s) com sucesso!")
             if ja_existentes:
-                st.info(f"📁 {ja_existentes} arquivo(s) já existiam ou foram ignorados.")
+                st.info(f"📁 {ja_existentes} ficheiro(s) já existiam ou foram ignorados.")
             if erros:
-                st.warning(f"⚠️ {erros} arquivo(s) apresentaram erro.")
+                st.warning(f"⚠️ {erros} ficheiro(s) apresentaram erro.")
 
         st.markdown("---")
         st.subheader("📁 Sincronizar Pasta Local de XMLs")
-        st.write(f"Pasta monitorada: `{PASTA_XMLS}`")
+        st.write(f"Pasta monitorizada: `{PASTA_XMLS}`")
 
         if st.button("🔄 Sincronizar Todos os XMLs da Pasta"):
             try:
@@ -650,12 +693,12 @@ elif menu == "📤 Upload de XML":
                 limpar_cache()
                 st.success(f"✅ Sincronização concluída! {sucessos_pasta} nota(s) importada(s).")
                 if erros_pasta:
-                    st.warning(f"⚠️ {erros_pasta} arquivo(s) com erro.")
+                    st.warning(f"⚠️ {erros_pasta} ficheiro(s) com erro.")
             except Exception as e:
                 st.error(f"Erro ao sincronizar pasta: {e}")
 
 # ===========================================================================
-# TELA 4: CALCULADORA
+# ECRÃ 4: CALCULADORA
 # ===========================================================================
 elif menu == "💰 Calculadora de Preços":
     st.title("Calculadora de Preços (Espelho da Planilha)")
@@ -726,7 +769,7 @@ elif menu == "💰 Calculadora de Preços":
     if st.button("Calcular Preços Exatos", type="primary"):
         soma_percentuais = (taxa_comissao + imposto_governo + margem_liquida) / 100
         if soma_percentuais >= 1:
-            st.error("A soma das porcentagens atinge ou ultrapassa 100%. Revise os valores.")
+            st.error("A soma das percentagens atinge ou ultrapassa 100%. Reveja os valores.")
         elif custo_produto <= 0:
             st.warning("Insira um custo válido.")
         else:
@@ -743,7 +786,7 @@ elif menu == "💰 Calculadora de Preços":
             c3.warning(f"**VENDEDOR FLEX**\n## {moeda(preco_flex)}")
 
 # ===========================================================================
-# TELA 5: COTAÇÃO / ORÇAMENTO
+# ECRÃ 5: COTAÇÃO / ORÇAMENTO
 # ===========================================================================
 elif menu == "📄 Cotação / Orçamento":
     st.title("Emissão de Cotação e Orçamento Profissional")
@@ -804,7 +847,7 @@ elif menu == "📄 Cotação / Orçamento":
     with col_btn:
         st.write("")
         if st.button("🔎 Buscar CNPJ", use_container_width=True):
-            with st.spinner("Consultando dados públicos do CNPJ..."):
+            with st.spinner("A consultar dados públicos do CNPJ..."):
                 dados_cnpj = buscar_cnpj(st.session_state["cnpj_cliente_input"])
             if dados_cnpj:
                 st.session_state["nome_cliente_input"] = dados_cnpj["nome"]
@@ -835,12 +878,12 @@ elif menu == "📄 Cotação / Orçamento":
     cep_cliente = st.session_state["cep_cliente_input"]
 
     salvar_cliente_novo = st.checkbox(
-        "💾 Salvar ou atualizar este cliente na base de dados", value=True
+        "💾 Guardar ou atualizar este cliente na base de dados", value=True
     )
 
     opcoes_pagamento = [
-        "À vista (Dinheiro/PIX)", "À vista (Cartão de Débito)", "À vista (Cartão de Crédito)",
-        "Boleto Bancário", "30 Dias", "Parcelado (3x)", "7 Dias", "21/35 Dias",
+        "A pronto (Dinheiro/PIX)", "A pronto (Cartão de Débito)", "A pronto (Cartão de Crédito)",
+        "Boleto Bancário", "30 Dias", "Faseado (3x)", "7 Dias", "21/35 Dias",
         "28/56 Dias", "30/60/90 Dias", "30/60/90/120 Dias",
     ]
 
@@ -855,7 +898,7 @@ elif menu == "📄 Cotação / Orçamento":
     validade_proposta = o2.text_input("📅 Validade da Proposta", "7 Dias")
     observacoes = st.text_area(
         "📝 Observações da Cotação",
-        "Garantia de 3 meses contra defeitos de fabricação.\n"
+        "Garantia de 3 meses contra defeitos de fabrico.\n"
         "Entrega mediante confirmação de pagamento.",
     )
 
@@ -876,7 +919,7 @@ elif menu == "📄 Cotação / Orçamento":
 
             # O campo de preço guarda o último valor digitado (via "key").
             # Sem isto, ele não percebe que a peça mudou e continua mostrando
-            # o preço da peça anterior. Aqui detectamos a troca e forçamos
+            # o preço da peça anterior. Aqui detetamos a troca e forçamos
             # o campo a assumir o novo custo sugerido.
             if st.session_state.get("_ultimo_prod_hist") != prod_escolhido:
                 st.session_state["preco_hist"] = float(custo_bd)
@@ -897,7 +940,7 @@ elif menu == "📄 Cotação / Orçamento":
                 })
                 st.rerun()
         else:
-            st.info("Nenhum produto no histórico ainda. Use a aba 'Item avulso'.")
+            st.info("Nenhum produto no histórico ainda. Use o separador 'Item avulso'.")
 
     with aba_livre:
         a1, a2, a3 = st.columns([3, 1, 1])
@@ -922,7 +965,7 @@ elif menu == "📄 Cotação / Orçamento":
     # ---------------- CARRINHO ----------------
     if st.session_state["itens_orcamento"]:
         st.write("#### 🛒 Itens Selecionados na Cotação")
-        st.caption("Altere quantidade e preço direto nos campos — o total se atualiza sozinho.")
+        st.caption("Altere a quantidade e preço direto nos campos — o total atualiza-se sozinho.")
 
         h1, h2, h3, h4, h5 = st.columns([4, 1.5, 1.5, 1.5, 0.5])
         h1.write("**Produto**")
@@ -1012,7 +1055,7 @@ elif menu == "📄 Cotação / Orçamento":
                     )
                     limpar_cache()
                 except Exception as e:
-                    st.warning(f"Não foi possível salvar o cliente: {e}")
+                    st.warning(f"Não foi possível guardar o cliente: {e}")
 
             # --- gera o PDF ---
             try:
@@ -1126,7 +1169,7 @@ elif menu == "📄 Cotação / Orçamento":
                     saida = saida.encode("latin-1")
                 st.session_state["pdf_gerado"] = (bytes(saida), f"Orcamento_{num_cotacao}.pdf")
 
-                # --- Salva a cotação no histórico (tela "🗂️ Histórico de Cotações") ---
+                # --- Salva a cotação no histórico (ecrã "🗂️ Histórico de Cotações") ---
                 try:
                     itens_para_salvar = [
                         {k: v for k, v in item.items() if k != "uid"}
@@ -1153,7 +1196,7 @@ elif menu == "📄 Cotação / Orçamento":
                     )
                     limpar_cache()
                 except Exception as e:
-                    st.warning(f"PDF gerado, mas não foi possível salvar no histórico: {e}")
+                    st.warning(f"PDF gerado, mas não foi possível guardar no histórico: {e}")
 
             except Exception as e:
                 st.session_state["pdf_gerado"] = None
@@ -1161,7 +1204,7 @@ elif menu == "📄 Cotação / Orçamento":
 
         if st.session_state["pdf_gerado"]:
             bytes_pdf, nome_arquivo = st.session_state["pdf_gerado"]
-            st.success("PDF pronto! (também salvo em '🗂️ Histórico de Cotações')")
+            st.success("PDF pronto! (também guardado em '🗂️ Histórico de Cotações')")
 
             colb1, colb2, colb3 = st.columns(3)
             colb1.download_button(
@@ -1173,18 +1216,18 @@ elif menu == "📄 Cotação / Orçamento":
             )
 
             texto_whats = (
-                f"Olá {nome_cliente}! Segue sua cotação {num_cotacao} da VirtuAr Compressores.\n"
+                f"Olá {nome_cliente}! Segue a sua cotação {num_cotacao} da VirtuAr Compressores.\n"
                 f"Valor total: R$ {total_geral:,.2f}\n"
                 f"Validade: {validade_proposta}\n"
-                f"(O PDF está anexo separadamente)"
+                f"(O PDF está em anexo separadamente)"
             )
             link_whats = f"https://wa.me/?text={quote(texto_whats)}"
             colb2.link_button("📲 Enviar por WhatsApp", link_whats)
-            colb2.caption("Abre o WhatsApp com a mensagem pronta. Anexe o PDF baixado manualmente.")
+            colb2.caption("Abre o WhatsApp com a mensagem pronta. Anexe o PDF descarregado manualmente.")
 
             assunto_email = quote(f"Cotação {num_cotacao} - VirtuAr Compressores")
             corpo_email = quote(
-                f"Olá {nome_cliente},\n\nSegue sua cotação {num_cotacao}.\n"
+                f"Olá {nome_cliente},\n\nSegue a sua cotação {num_cotacao}.\n"
                 f"Valor total: R$ {total_geral:,.2f}\nValidade: {validade_proposta}\n\n"
                 f"Atenciosamente,\n{vendedor}"
             )
@@ -1192,16 +1235,16 @@ elif menu == "📄 Cotação / Orçamento":
                 "✉️ Enviar por E-mail",
                 f"mailto:?subject={assunto_email}&body={corpo_email}",
             )
-            colb3.caption("Abre seu programa de e-mail. Anexe o PDF baixado manualmente.")
+            colb3.caption("Abre o seu programa de e-mail. Anexe o PDF descarregado manualmente.")
     else:
-        st.info("Adicione ao menos um item para gerar a cotação.")
+        st.info("Adicione pelo menos um item para gerar a cotação.")
 
 # ===========================================================================
-# TELA 6: HISTÓRICO DE COTAÇÕES
+# ECRÃ 6: HISTÓRICO DE COTAÇÕES
 # ===========================================================================
 elif menu == "🗂️ Histórico de Cotações":
     st.title("Histórico de Cotações")
-    st.write("Todas as cotações geradas ficam salvas aqui, mesmo depois de baixar o PDF.")
+    st.write("Todas as cotações geradas ficam guardadas aqui, mesmo depois de descarregar o PDF.")
 
     try:
         df_cot = consultar(
@@ -1213,7 +1256,7 @@ elif menu == "🗂️ Histórico de Cotações":
         df_cot = pd.DataFrame()
 
     if df_cot.empty:
-        st.info("Nenhuma cotação salva ainda. Gere uma em '📄 Cotação / Orçamento'.")
+        st.info("Nenhuma cotação guardada ainda. Gere uma em '📄 Cotação / Orçamento'.")
     else:
         total_cot = len(df_cot)
         convertidas = int((df_cot["status"] == "Convertida em Venda").sum())
@@ -1234,7 +1277,7 @@ elif menu == "🗂️ Histórico de Cotações":
                 st.write(f"**Data:** {linha['data_cotacao']}")
                 if linha["status"] != "Convertida em Venda":
                     if st.button(
-                        "✅ Marcar como Convertida em Venda (registra a venda e baixa estoque)",
+                        "✅ Marcar como Convertida em Venda (regista a venda e baixa estoque)",
                         key=f"conv_{linha['id']}",
                     ):
                         try:
@@ -1277,17 +1320,17 @@ elif menu == "🗂️ Histórico de Cotações":
                     st.success("Já convertida em venda.")
 
 # ===========================================================================
-# TELA 7: REGISTRAR VENDA (manual, sem passar por cotação)
+# ECRÃ 7: REGISTAR VENDA (manual, sem passar por cotação)
 # ===========================================================================
-elif menu == "📈 Registrar Venda":
-    st.title("Registrar Venda")
-    st.write("Use esta tela para vendas feitas fora de uma cotação formal (venda direta no balcão, por exemplo).")
+elif menu == "📈 Registar Venda":
+    st.title("Registar Venda")
+    st.write("Use este ecrã para vendas feitas fora de uma cotação formal (venda direta no balcão, por exemplo).")
 
     mapa_v = mapa_produtos()
     lista_prods_v = list(mapa_v.keys())
 
     if not lista_prods_v:
-        st.info("Nenhum produto no histórico ainda. Importe XMLs primeiro.")
+        st.info("Nenhum produto no histórico ainda. Importe ficheiros XML primeiro.")
     else:
         col1, col2, col3 = st.columns(3)
         produto_v = col1.selectbox("Produto", lista_prods_v, key="prod_venda")
@@ -1302,7 +1345,7 @@ elif menu == "📈 Registrar Venda":
         cliente_v = st.text_input("Cliente (opcional)", "")
         data_v = st.date_input("Data da Venda", value=datetime.now())
 
-        if st.button("💾 Registrar Venda", type="primary"):
+        if st.button("💾 Registar Venda", type="primary"):
             try:
                 db.run(
                     """
@@ -1319,12 +1362,12 @@ elif menu == "📈 Registrar Venda":
                     },
                 )
                 limpar_cache()
-                st.success(f"✅ Venda de {qtd_v}x {produto_v} registrada!")
+                st.success(f"✅ Venda de {qtd_v}x {produto_v} registada!")
             except Exception as e:
-                st.error(f"Erro ao registrar venda: {e}")
+                st.error(f"Erro ao registar venda: {e}")
 
     st.divider()
-    st.subheader("Últimas vendas registradas")
+    st.subheader("Últimas vendas registadas")
     try:
         df_vendas = consultar(
             "SELECT data_venda AS Data, descricao AS Produto, quantidade AS Qtd, "
@@ -1335,23 +1378,23 @@ elif menu == "📈 Registrar Venda":
             df_vendas["Produto"] = df_vendas["Produto"].apply(limpar_nome_peca)
             st.dataframe(df_vendas, use_container_width=True, hide_index=True)
         else:
-            st.info("Nenhuma venda registrada ainda.")
+            st.info("Nenhuma venda registada ainda.")
     except Exception as e:
         st.error(f"Erro ao carregar vendas: {e}")
 
 # ===========================================================================
-# TELA 8: ESTOQUE
+# ECRÃ 8: ESTOQUE
 # ===========================================================================
 elif menu == "📦 Estoque":
     st.title("Estoque")
-    st.write("Calculado como: total comprado (notas fiscais) − total vendido (vendas registradas).")
+    st.write("Calculado como: total comprado (notas fiscais) − total vendido (vendas registadas).")
     st.caption(
-        "⚠️ Só é preciso se todas as vendas forem registradas em '📈 Registrar Venda' "
+        "⚠️ Só é preciso se todas as vendas forem registadas em '📈 Registar Venda' "
         "ou convertidas a partir de uma cotação."
     )
 
     col_busca, col_limite = st.columns([3, 1])
-    termo_estoque = col_busca.text_input("🔍 Buscar produto (ex: PRESSOSTATO)")
+    termo_estoque = col_busca.text_input("🔍 Procurar produto (ex: PRESSOSTATO)")
     limite_baixo = col_limite.number_input("Avisar quando saldo ≤", min_value=0, value=3)
 
     try:
@@ -1361,7 +1404,7 @@ elif menu == "📦 Estoque":
         df_estoque = pd.DataFrame()
 
     if df_estoque.empty:
-        st.info("Sem dados suficientes ainda. Importe XMLs e registre vendas.")
+        st.info("Sem dados suficientes ainda. Importe ficheiros XML e registe vendas.")
     else:
         if termo_estoque:
             df_estoque = df_estoque[
@@ -1385,34 +1428,34 @@ elif menu == "📦 Estoque":
             st.dataframe(df_estoque, use_container_width=True, hide_index=True)
 
 # ===========================================================================
-# TELA 9: USUÁRIOS (login)
+# ECRÃ 9: UTILIZADORES (login)
 # ===========================================================================
 elif menu == "👥 Usuários":
-    st.title("Usuários do Sistema")
+    st.title("Utilizadores do Sistema")
 
     qtd_usuarios = contar_usuarios()
     if qtd_usuarios == 0:
         st.info(
-            "Ainda não existe nenhum usuário cadastrado — o app está aberto para qualquer "
-            "pessoa com o link. Crie o primeiro usuário abaixo para ativar a tela de login."
+            "Ainda não existe nenhum utilizador registado — a aplicação está aberta a qualquer "
+            "pessoa com o link. Crie o primeiro utilizador abaixo para ativar o ecrã de login."
         )
     else:
-        st.success(f"🔒 Login ativado — {qtd_usuarios} usuário(s) cadastrado(s).")
+        st.success(f"🔒 Login ativado — {qtd_usuarios} utilizador(es) registado(s).")
 
     with st.form("novo_usuario_form"):
-        st.subheader("Adicionar novo usuário")
-        novo_usuario = st.text_input("Usuário (login)")
+        st.subheader("Adicionar novo utilizador")
+        novo_usuario = st.text_input("Utilizador (login)")
         novo_nome = st.text_input("Nome de exibição", "")
         nova_senha = st.text_input("Senha", type="password")
         eh_admin_novo = st.checkbox(
             "Administrador (vê o Dashboard e informações financeiras)",
             value=(qtd_usuarios == 0),
         )
-        criar = st.form_submit_button("Criar usuário", type="primary")
+        criar = st.form_submit_button("Criar utilizador", type="primary")
 
     if criar:
         if not novo_usuario or not nova_senha:
-            st.warning("Preencha usuário e senha.")
+            st.warning("Preencha o utilizador e a senha.")
         else:
             try:
                 db.run(
@@ -1425,14 +1468,14 @@ elif menu == "👥 Usuários":
                         "admin": eh_admin_novo,
                     },
                 )
-                st.success(f"Usuário '{novo_usuario}' criado!")
+                st.success(f"Utilizador '{novo_usuario}' criado!")
                 limpar_cache()
                 st.rerun()
             except Exception as e:
-                st.error(f"Não foi possível criar (usuário já existe?): {e}")
+                st.error(f"Não foi possível criar (o utilizador já existe?): {e}")
 
     st.divider()
-    st.subheader("Usuários cadastrados")
+    st.subheader("Utilizadores registados")
     try:
         df_users = consultar("SELECT usuario, nome_exibicao, admin FROM usuarios ORDER BY usuario")
         if not df_users.empty:
@@ -1440,7 +1483,11 @@ elif menu == "👥 Usuários":
                 colu1, colu2, colu3 = st.columns([3, 2, 2])
                 colu1.write(f"**{u['usuario']}**")
                 colu2.write(u["nome_exibicao"])
-                if bool(u["admin"]):
+                
+                # Previne quebra caso a coluna admin ainda não esteja lá
+                status_admin = bool(u["admin"]) if "admin" in u else True 
+                
+                if status_admin:
                     colu3.success("🔑 Administrador")
                 else:
                     if colu3.button("Tornar administrador", key=f"promo_{u['usuario']}"):
@@ -1451,6 +1498,6 @@ elif menu == "👥 Usuários":
                         limpar_cache()
                         st.rerun()
         else:
-            st.info("Nenhum usuário cadastrado.")
+            st.info("Nenhum utilizador registado.")
     except Exception as e:
-        st.error(f"Erro ao listar usuários: {e}")
+        st.error(f"Erro ao listar utilizadores: {e}")
