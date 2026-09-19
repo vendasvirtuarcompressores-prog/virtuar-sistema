@@ -1017,7 +1017,7 @@ elif menu == "📄 Cotação / Orçamento":
     validade_proposta = o2.text_input("📅 Validade da Proposta", "7 Dias")
     observacoes = st.text_area(
         "📝 Observações da Cotação",
-        "Garantia de 3 meses contra defeitos de fabrico.\n"
+        "Garantia de 3 meses contra defeitos de fabrica.\n"
         "Entrega mediante confirmação de pagamento.",
     )
 
