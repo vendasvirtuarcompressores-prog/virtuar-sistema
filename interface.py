@@ -290,7 +290,7 @@ def buscar_produto_por_codigo(code_raw: str) -> pd.DataFrame:
     code_like = f"%{code}%"
 
     query = """
-        SELECT i.descricao, i.valor_unitario
+        SELECT i.descricao, i.valor_unitario, i.codigo_prod
         FROM itens_nota i
         WHERE LTRIM(TRIM(REPLACE(REPLACE(COALESCE(i.codigo_prod, ''), :cr, ''), :lf, '')), '0') = :code_sem_zero
            OR LTRIM(TRIM(REPLACE(REPLACE(COALESCE(i.ean, ''), :cr, ''), :lf, '')), '0') = :code_sem_zero
@@ -352,6 +352,101 @@ def ultimo_custo(descricao_db: str) -> float:
     if df.empty or pd.isna(df.iloc[0, 0]):
         return 0.0
     return float(df.iloc[0, 0])
+
+
+def ultimo_codigo_prod(descricao_db: str) -> str:
+    """SKU/código do fornecedor mais recente para o produto, usado no XML do Bling."""
+    df = consultar(
+        """
+        SELECT i.codigo_prod
+        FROM itens_nota i
+        JOIN notas_fiscais n ON i.chave_nfe = n.chave_nfe
+        WHERE i.descricao = :descricao AND i.codigo_prod IS NOT NULL AND i.codigo_prod != ''
+        ORDER BY n.data_emissao DESC
+        LIMIT 1
+        """,
+        {"descricao": descricao_db},
+    )
+    if df.empty:
+        return ""
+    return str(df.iloc[0, 0])
+
+
+def _xml_escape(texto) -> str:
+    return html.escape(str(texto or ""), quote=False)
+
+
+def gerar_xml_pedido_bling(
+    nome_cliente, cnpj_cliente, tel_cliente, end_cliente, cid_cliente, cep_cliente,
+    itens, valor_frete, observacoes, numero_cotacao,
+):
+    """Gera um XML no padrão de importação de pedidos do Bling
+    (Vendas > Importar pedidos manualmente). A nota fiscal continua
+    sendo emitida dentro do Bling — isso só cria o pedido lá.
+
+    Alguns campos opcionais do Bling (Inscrição Estadual, complemento,
+    bairro, e-mail, número do endereço) não são controlados pelo VirtuAr
+    hoje; ficam em branco e podem ser completados dentro do Bling antes
+    de fechar a venda, se for o caso.
+    """
+    digitos_cnpj = re.sub(r"\D", "", cnpj_cliente or "")
+    tipo_pessoa = "J" if len(digitos_cnpj) > 11 else "F"
+
+    # Separação simples de "Rua Fulano, 100" em rua/número.
+    rua, numero_end = (end_cliente or "").strip(), ""
+    if "," in (end_cliente or ""):
+        partes = end_cliente.rsplit(",", 1)
+        rua = partes[0].strip()
+        numero_end = partes[1].strip()
+
+    cidade, uf = "", ""
+    if cid_cliente and " - " in cid_cliente:
+        cidade, uf = [p.strip() for p in cid_cliente.split(" - ", 1)]
+    else:
+        cidade = cid_cliente or ""
+
+    itens_xml = ""
+    for item in itens:
+        itens_xml += f"""
+    <item>
+        <codigo>{_xml_escape(item.get("codigo_prod", ""))}</codigo>
+        <descricao>{_xml_escape(item["produto"])}</descricao>
+        <un>UN</un>
+        <qtde>{item["quantidade"]}</qtde>
+        <vlr_unit>{item["preco_unitario"]:.2f}</vlr_unit>
+    </item>"""
+
+    total_itens = sum(i["total"] for i in itens)
+    total_pedido = total_itens + (valor_frete or 0)
+
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<pedido>
+    <cliente>
+        <nome>{_xml_escape(nome_cliente)}</nome>
+        <tipoPessoa>{tipo_pessoa}</tipoPessoa>
+        <endereco>{_xml_escape(rua)}</endereco>
+        <cpf_cnpj>{digitos_cnpj}</cpf_cnpj>
+        <numero>{_xml_escape(numero_end)}</numero>
+        <cep>{_xml_escape(cep_cliente)}</cep>
+        <cidade>{_xml_escape(cidade)}</cidade>
+        <uf>{_xml_escape(uf)}</uf>
+        <fone>{_xml_escape(tel_cliente)}</fone>
+    </cliente>
+    <itens>{itens_xml}
+    </itens>
+    <parcelas>
+        <parcela>
+            <data>{datetime.now().strftime("%d/%m/%Y")}</data>
+            <vlr>{total_pedido:.2f}</vlr>
+            <obs>Cotação {_xml_escape(numero_cotacao)}</obs>
+        </parcela>
+    </parcelas>
+    <vlr_frete>{(valor_frete or 0):.2f}</vlr_frete>
+    <vlr_desconto>0.00</vlr_desconto>
+    <obs>{_xml_escape(observacoes)}</obs>
+    <obs_internas>Gerado automaticamente pelo VirtuAr a partir da cotação {_xml_escape(numero_cotacao)}</obs_internas>
+</pedido>"""
+    return xml
 
 
 # ---------------------------------------------------------------------------
@@ -893,6 +988,7 @@ elif menu == "📄 Cotação / Orçamento":
             if not df.empty:
                 prod = df.loc[0, "descricao"]
                 preco = float(df.loc[0, "valor_unitario"])
+                codigo_prod_item = str(df.loc[0, "codigo_prod"] or "")
                 
                 encontrado = False
                 for item in st.session_state["itens_orcamento"]:
@@ -910,6 +1006,7 @@ elif menu == "📄 Cotação / Orçamento":
                         "quantidade": 1,
                         "preco_unitario": preco,
                         "total": preco,
+                        "codigo_prod": codigo_prod_item,
                     })
                 st.session_state["msg_bip_orc"] = f"✅ Adicionado: **{limpar_nome_peca(prod)}**"
             else:
@@ -1017,7 +1114,7 @@ elif menu == "📄 Cotação / Orçamento":
     validade_proposta = o2.text_input("📅 Validade da Proposta", "7 Dias")
     observacoes = st.text_area(
         "📝 Observações da Cotação",
-        "Garantia de 3 meses contra defeitos de fabrica.\n"
+        "Garantia de 3 meses contra defeitos de fabrico.\n"
         "Entrega mediante confirmação de pagamento.",
     )
 
@@ -1067,6 +1164,7 @@ elif menu == "📄 Cotação / Orçamento":
                     "quantidade": int(qtd_item),
                     "preco_unitario": float(preco_item),
                     "total": qtd_item * preco_item,
+                    "codigo_prod": ultimo_codigo_prod(mapa[prod_escolhido]),
                 })
                 st.rerun()
         else:
@@ -1087,6 +1185,7 @@ elif menu == "📄 Cotação / Orçamento":
                     "quantidade": int(qtd_livre),
                     "preco_unitario": float(preco_livre),
                     "total": qtd_livre * preco_livre,
+                    "codigo_prod": "",
                 })
                 st.rerun()
             else:
@@ -1333,7 +1432,7 @@ elif menu == "📄 Cotação / Orçamento":
             bytes_pdf, nome_arquivo = st.session_state["pdf_gerado"]
             st.success("PDF pronto! (também guardado em '🗂️ Histórico de Cotações')")
 
-            colb1, colb2, colb3 = st.columns(3)
+            colb1, colb2, colb3, colb4 = st.columns(4)
             colb1.download_button(
                 "📥 Baixar PDF",
                 data=bytes_pdf,
@@ -1363,6 +1462,18 @@ elif menu == "📄 Cotação / Orçamento":
                 f"mailto:?subject={assunto_email}&body={corpo_email}",
             )
             colb3.caption("Abre o seu programa de e-mail. Anexe o PDF descarregado manualmente.")
+
+            xml_bling = gerar_xml_pedido_bling(
+                nome_cliente, cnpj_cliente, tel_cliente, end_cliente, cid_cliente, cep_cliente,
+                st.session_state["itens_orcamento"], valor_frete, observacoes, num_cotacao,
+            )
+            colb4.download_button(
+                "📦 Exportar p/ Bling (XML)",
+                data=xml_bling.encode("utf-8"),
+                file_name=f"Pedido_{num_cotacao}.xml",
+                mime="application/xml",
+            )
+            colb4.caption("Importe em: Bling → Vendas → Importar pedidos manualmente.")
     else:
         st.info("Adicione pelo menos um item para gerar a cotação.")
 
@@ -1375,7 +1486,8 @@ elif menu == "🗂️ Histórico de Cotações":
 
     try:
         df_cot = consultar(
-            "SELECT id, numero_cotacao, data_cotacao, cliente, valor_total, status "
+            "SELECT id, numero_cotacao, data_cotacao, cliente, cnpj_cliente, valor_frete, "
+            "valor_total, status "
             "FROM cotacoes ORDER BY id DESC LIMIT 200"
         )
     except Exception as e:
@@ -1445,6 +1557,48 @@ elif menu == "🗂️ Histórico de Cotações":
                             st.error(f"Erro ao converter: {e}")
                 else:
                     st.success("Já convertida em venda.")
+
+                st.divider()
+                chave_xml = f"xmlbling_{linha['id']}"
+                if st.button("📦 Gerar XML para importar no Bling", key=f"btn_{chave_xml}"):
+                    try:
+                        df_full = consultar(
+                            "SELECT itens_json FROM cotacoes WHERE id = :id",
+                            {"id": int(linha["id"])},
+                        )
+                        itens = json.loads(df_full.loc[0, "itens_json"])
+
+                        # Busca dados completos do cliente (endereço, telefone) se
+                        # ele estiver cadastrado na base de clientes.
+                        dados_cli = consultar(
+                            "SELECT telefone, endereco, cidade_uf, cep FROM clientes "
+                            "WHERE cnpj_cpf = :cnpj",
+                            {"cnpj": linha["cnpj_cliente"]},
+                        )
+                        tel = end = cid = cep = ""
+                        if not dados_cli.empty:
+                            tel = dados_cli.loc[0, "telefone"] or ""
+                            end = dados_cli.loc[0, "endereco"] or ""
+                            cid = dados_cli.loc[0, "cidade_uf"] or ""
+                            cep = dados_cli.loc[0, "cep"] or ""
+
+                        xml_bling = gerar_xml_pedido_bling(
+                            linha["cliente"], linha["cnpj_cliente"], tel, end, cid, cep,
+                            itens, float(linha["valor_frete"] or 0), "",
+                            linha["numero_cotacao"],
+                        )
+                        st.session_state[chave_xml] = xml_bling
+                    except Exception as e:
+                        st.error(f"Erro ao gerar XML: {e}")
+
+                if chave_xml in st.session_state:
+                    st.download_button(
+                        "📥 Baixar XML",
+                        data=st.session_state[chave_xml].encode("utf-8"),
+                        file_name=f"Pedido_{linha['numero_cotacao']}.xml",
+                        mime="application/xml",
+                        key=f"dl_{chave_xml}",
+                    )
 
 # ===========================================================================
 # ECRÃ 7: REGISTAR VENDA (manual / rápida por código)
