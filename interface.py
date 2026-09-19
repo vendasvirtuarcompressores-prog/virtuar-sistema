@@ -1277,6 +1277,7 @@ elif menu == "👥 Usuários":
                     },
                 )
                 st.success(f"Usuário '{novo_usuario}' criado!")
+                limpar_cache()
                 st.rerun()
             except Exception as e:
                 st.error(f"Não foi possível criar (usuário já existe?): {e}")
