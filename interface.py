@@ -277,7 +277,7 @@ def buscar_cnpj(cnpj: str):
 
 
 def buscar_produto_por_codigo(code_raw: str) -> pd.DataFrame:
-    """Busca flexível por SKU do fornecedor ou Código de Barras (EAN).
+    """Busca ultra-flexível por SKU do fornecedor ou Código de Barras (EAN).
     Totalmente compatível com PostgreSQL e SQLite.
     """
     if not code_raw:
@@ -292,20 +292,19 @@ def buscar_produto_por_codigo(code_raw: str) -> pd.DataFrame:
     query = """
         SELECT i.descricao, i.valor_unitario
         FROM itens_nota i
-        WHERE TRIM(i.codigo_prod) = :code
-           OR TRIM(i.ean) = :code
-           OR LTRIM(TRIM(i.codigo_prod), '0') = :code_sem_zero
-           OR LTRIM(TRIM(i.ean), '0') = :code_sem_zero
-           OR i.codigo_prod LIKE :code_like
-           OR i.ean LIKE :code_like
+        WHERE LTRIM(TRIM(REPLACE(REPLACE(COALESCE(i.codigo_prod, ''), :cr, ''), :lf, '')), '0') = :code_sem_zero
+           OR LTRIM(TRIM(REPLACE(REPLACE(COALESCE(i.ean, ''), :cr, ''), :lf, '')), '0') = :code_sem_zero
+           OR COALESCE(i.codigo_prod, '') LIKE :code_like
+           OR COALESCE(i.ean, '') LIKE :code_like
         ORDER BY i.id DESC LIMIT 1
     """
     return db.fetch_df(
         query,
         {
-            "code": code,
             "code_sem_zero": code_sem_zero,
             "code_like": code_like,
+            "cr": chr(13),
+            "lf": chr(10)
         },
     )
 
