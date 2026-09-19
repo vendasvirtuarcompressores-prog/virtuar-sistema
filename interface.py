@@ -1223,7 +1223,9 @@ elif menu == "📦 Estoque":
         "ou convertidas a partir de uma cotação."
     )
 
-    limite_baixo = st.number_input("Avisar quando o saldo for menor ou igual a:", min_value=0, value=3)
+    col_busca, col_limite = st.columns([3, 1])
+    termo_estoque = col_busca.text_input("🔍 Buscar produto (ex: PRESSOSTATO)")
+    limite_baixo = col_limite.number_input("Avisar quando saldo ≤", min_value=0, value=3)
 
     try:
         df_estoque = calcular_estoque()
@@ -1234,14 +1236,26 @@ elif menu == "📦 Estoque":
     if df_estoque.empty:
         st.info("Sem dados suficientes ainda. Importe XMLs e registre vendas.")
     else:
-        baixos = df_estoque[df_estoque["Saldo"] <= limite_baixo]
-        if not baixos.empty:
-            st.warning(f"⚠️ {len(baixos)} produto(s) com estoque baixo (≤ {limite_baixo}):")
-            st.dataframe(baixos, use_container_width=True, hide_index=True)
-            st.divider()
+        if termo_estoque:
+            df_estoque = df_estoque[
+                df_estoque["Produto"].str.upper().str.contains(termo_estoque.upper(), na=False)
+            ]
 
-        st.subheader("Estoque completo")
-        st.dataframe(df_estoque, use_container_width=True, hide_index=True)
+        if termo_estoque:
+            st.write(f"**Resultados encontrados:** {len(df_estoque)}")
+            if df_estoque.empty:
+                st.warning("Nenhum produto encontrado com esse termo.")
+            else:
+                st.dataframe(df_estoque, use_container_width=True, hide_index=True)
+        else:
+            baixos = df_estoque[df_estoque["Saldo"] <= limite_baixo]
+            if not baixos.empty:
+                st.warning(f"⚠️ {len(baixos)} produto(s) com estoque baixo (≤ {limite_baixo}):")
+                st.dataframe(baixos, use_container_width=True, hide_index=True)
+                st.divider()
+
+            st.subheader("Estoque completo")
+            st.dataframe(df_estoque, use_container_width=True, hide_index=True)
 
 # ===========================================================================
 # TELA 9: USUÁRIOS (login)
