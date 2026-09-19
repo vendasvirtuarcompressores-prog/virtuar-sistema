@@ -130,7 +130,7 @@ except Exception as e:
 
 
 # ---------------------------------------------------------------------------
-# INICIALIZAÇÃO SEGURA DO BANCO
+# INICIALIZAÇÃO SEGURA DO BANCO E MIGRAÇÕES
 # ---------------------------------------------------------------------------
 try:
     db.init_schema()
@@ -139,6 +139,14 @@ try:
         db.run("ALTER TABLE usuarios ADD COLUMN admin BOOLEAN DEFAULT FALSE;")
     except Exception:
         pass 
+    try:
+        db.run("ALTER TABLE itens_nota ADD COLUMN codigo_prod TEXT;")
+    except Exception:
+        pass
+    try:
+        db.run("ALTER TABLE itens_nota ADD COLUMN ean TEXT;")
+    except Exception:
+        pass
 
     BANCO_OK = True
     ERRO_BANCO = None
@@ -314,7 +322,7 @@ def ultimo_custo(descricao_db: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# LOGIN COM COOKIES
+# LOGIN COM COOKIES (Resiste ao F5)
 # ---------------------------------------------------------------------------
 if BANCO_OK and contar_usuarios() > 0:
     if USAR_COOKIES and not st.session_state.get("logado"):
@@ -609,7 +617,7 @@ if menu == "📊 Dashboard Inicial":
 # ECRÃ 2: CONSULTAS
 # ===========================================================================
 elif menu == "🔍 Consultas e Filtros":
-    st.title("Consulta de Peças e Preços")
+    st.title("Consulta de Peças, SKUs e Preços")
 
     try:
         df_fornecedores = consultar("SELECT DISTINCT nome FROM fornecedores ORDER BY nome")
@@ -619,7 +627,7 @@ elif menu == "🔍 Consultas e Filtros":
         lista_fornecedores = ["Todos"]
 
     col1, col2, col3 = st.columns(3)
-    termo_pesquisa = col1.text_input("🔍 Nome da Peça (ex: PRESSOSTATO)")
+    termo_pesquisa = col1.text_input("🔍 Nome da Peça ou SKU/Código (ex: PRESSOSTATO / 1234)")
     fornecedor_selecionado = col2.selectbox("🏢 Fornecedor", lista_fornecedores)
     meses = {
         "Todos": "", "Janeiro": "01", "Fevereiro": "02", "Março": "03", "Abril": "04",
@@ -631,6 +639,7 @@ elif menu == "🔍 Consultas e Filtros":
     query = """
         SELECT n.data_emissao                        AS "Data",
                COALESCE(f.nome, n.cnpj_fornecedor)    AS "Fornecedor",
+               COALESCE(i.codigo_prod, '')           AS "SKU / Cód. Fornecedor",
                i.descricao                            AS "Produto",
                i.quantidade                           AS "Qtd",
                i.valor_unitario                       AS "Preço Un. (R$)",
@@ -642,7 +651,7 @@ elif menu == "🔍 Consultas e Filtros":
     """
     params = {}
     if termo_pesquisa:
-        query += " AND UPPER(i.descricao) LIKE :termo"
+        query += " AND (UPPER(i.descricao) LIKE :termo OR UPPER(i.codigo_prod) LIKE :termo OR UPPER(i.ean) LIKE :termo)"
         params["termo"] = f"%{termo_pesquisa.upper()}%"
     if fornecedor_selecionado != "Todos":
         query += " AND f.nome = :fornecedor"
@@ -843,7 +852,7 @@ elif menu == "📄 Cotação / Orçamento":
     st.session_state.setdefault("contador_item", 0)
     st.session_state.setdefault("msg_bip_orc", "")
 
-    # Callback de bipagem automática no orçamento
+    # Callback de bipagem automática no orçamento por SKU/Cód.Fornecedor ou Código de Barras
     def bipar_item_orcamento():
         code = st.session_state.get("input_bip_orc", "").strip()
         if code:
@@ -851,16 +860,15 @@ elif menu == "📄 Cotação / Orçamento":
                 """
                 SELECT i.descricao, i.valor_unitario
                 FROM itens_nota i
-                WHERE i.codigo_barras = :code OR i.codigo_produto = :code
+                WHERE UPPER(i.codigo_prod) = :code OR UPPER(i.ean) = :code
                 ORDER BY i.id DESC LIMIT 1
                 """,
-                {"code": code},
+                {"code": code.upper()},
             )
             if not df.empty:
                 prod = df.loc[0, "descricao"]
                 preco = float(df.loc[0, "valor_unitario"])
                 
-                # Incrementa se já existir no orçamento, ou adiciona novo
                 encontrado = False
                 for item in st.session_state["itens_orcamento"]:
                     if item["produto"] == prod:
@@ -880,7 +888,7 @@ elif menu == "📄 Cotação / Orçamento":
                     })
                 st.session_state["msg_bip_orc"] = f"✅ Adicionado: **{limpar_nome_peca(prod)}**"
             else:
-                st.session_state["msg_bip_orc"] = f"❌ Código '{code}' não foi encontrado nas notas."
+                st.session_state["msg_bip_orc"] = f"❌ Código/SKU '{code}' não foi encontrado nas notas."
             st.session_state["input_bip_orc"] = ""
 
     # ---------------- 1. CLIENTE ----------------
@@ -996,18 +1004,18 @@ elif menu == "📄 Cotação / Orçamento":
     lista_prods = list(mapa.keys())
 
     aba_barras, aba_hist, aba_livre = st.tabs([
-        "🏷️ Bipar Código de Barras (Rápido)",
+        "🏷️ Bipar Código / SKU (Rápido)",
         "🔍 Buscar por Nome (Compressores)",
         "✏️ Item avulso"
     ])
 
     with aba_barras:
-        st.write("Clique no campo abaixo e passe os itens no leitor. O item entra direto na lista.")
+        st.write("Clique no campo abaixo e passe os itens no leitor ou digite o SKU do fornecedor:")
         st.text_input(
-            "📍 Código de Barras / SKU",
+            "📍 Código de Barras / SKU Fornecedor",
             key="input_bip_orc",
             on_change=bipar_item_orcamento,
-            placeholder="Bipe o produto aqui..."
+            placeholder="Bipe ou digite o código aqui..."
         )
         if st.session_state["msg_bip_orc"]:
             st.markdown(st.session_state["msg_bip_orc"])
@@ -1414,7 +1422,7 @@ elif menu == "🗂️ Histórico de Cotações":
                     st.success("Já convertida em venda.")
 
 # ===========================================================================
-# ECRÃ 7: REGISTAR VENDA (manual / rápida com código de barras)
+# ECRÃ 7: REGISTAR VENDA (manual / rápida por código)
 # ===========================================================================
 elif menu == "📈 Registar Venda":
     st.title("Registar Venda Directa / Baixa de Estoque")
@@ -1425,31 +1433,31 @@ elif menu == "📈 Registar Venda":
 
     st.session_state.setdefault("msg_bip_venda", "")
 
-    aba_barras, aba_nome = st.tabs(["🏷️ Bipar Código de Barras", "🔍 Buscar por Nome (Compressores)"])
+    aba_barras, aba_nome = st.tabs(["🏷️ Bipar Código / SKU", "🔍 Buscar por Nome (Compressores)"])
 
     produto_selecionado_desc = None
     preco_sugerido_venda = 0.0
 
     with aba_barras:
-        st.write("Clique no campo e bipe o produto no leitor:")
-        code_venda = st.text_input("📍 Código de Barras (EAN / Código Fabr.)", key="input_bip_venda_direta")
+        st.write("Clique no campo e bipe o produto no leitor ou digite o SKU do fornecedor:")
+        code_venda = st.text_input("📍 Código de Barras / SKU Fornecedor", key="input_bip_venda_direta")
 
         if code_venda:
             df_match = consultar(
                 """
                 SELECT i.descricao, i.valor_unitario 
                 FROM itens_nota i 
-                WHERE i.codigo_barras = :code OR i.codigo_produto = :code
+                WHERE UPPER(i.codigo_prod) = :code OR UPPER(i.ean) = :code
                 ORDER BY i.id DESC LIMIT 1
                 """,
-                {"code": code_venda.strip()}
+                {"code": code_venda.strip().upper()}
             )
             if not df_match.empty:
                 produto_selecionado_desc = df_match.loc[0, "descricao"]
                 preco_sugerido_venda = float(df_match.loc[0, "valor_unitario"])
                 st.success(f"✅ Produto Encontrado: **{limpar_nome_peca(produto_selecionado_desc)}**")
             else:
-                st.error(f"❌ Código '{code_venda}' não encontrado.")
+                st.error(f"❌ Código/SKU '{code_venda}' não encontrado.")
 
     with aba_nome:
         if lista_prods_v:

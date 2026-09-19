@@ -168,12 +168,7 @@ def importar_todos_xmls():
 
 
 def salvar_xml_upload(arquivo):
-    """Salva uma cópia do XML enviado (apenas para referência local).
-
-    Atenção: em servidores como o Streamlit Cloud, essa pasta é apagada a
-    cada reinício/deploy. O que garante que os dados não se percam é o
-    banco (Postgres), não esta cópia do arquivo.
-    """
+    """Salva uma cópia do XML enviado."""
     PASTA_XMLS.mkdir(parents=True, exist_ok=True)
     nome_arquivo = Path(arquivo.name).name
     caminho_xml = PASTA_XMLS / nome_arquivo
