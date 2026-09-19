@@ -338,10 +338,10 @@ if menu == "📊 Dashboard Inicial":
         st.subheader("Últimas 5 Notas Lançadas")
         df_ultimas = consultar(
             """
-            SELECT n.data_emissao                        AS Data,
-                   COALESCE(f.nome, n.cnpj_fornecedor)    AS Fornecedor,
-                   n.numero_nf                            AS NF,
-                   n.valor_total                          AS Total
+            SELECT n.data_emissao                        AS data,
+                   COALESCE(f.nome, n.cnpj_fornecedor)    AS fornecedor,
+                   n.numero_nf                            AS nf,
+                   n.valor_total                          AS total
             FROM notas_fiscais n
             LEFT JOIN fornecedores f ON n.cnpj_fornecedor = f.cnpj
             ORDER BY n.data_emissao DESC
@@ -351,6 +351,9 @@ if menu == "📊 Dashboard Inicial":
         if df_ultimas.empty:
             st.info("Nenhuma nota cadastrada ainda. Importe XMLs na aba 'Upload de XML'.")
         else:
+            df_ultimas = df_ultimas.rename(columns={
+                "data": "Data", "fornecedor": "Fornecedor", "nf": "NF", "total": "Total",
+            })
             try:
                 df_ultimas["Data"] = pd.to_datetime(df_ultimas["Data"]).dt.strftime("%d/%m/%Y")
             except Exception:
