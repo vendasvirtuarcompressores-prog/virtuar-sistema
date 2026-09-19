@@ -212,14 +212,16 @@ def contar_usuarios() -> int:
 def autenticar(usuario: str, senha: str):
     try:
         df = db.fetch_df(
-            "SELECT usuario, nome_exibicao FROM usuarios WHERE usuario = :u AND senha_hash = :h",
+            "SELECT usuario, nome_exibicao, admin FROM usuarios WHERE usuario = :u AND senha_hash = :h",
             {"u": usuario.strip(), "h": hash_senha(senha)},
         )
         if not df.empty:
-            return df.iloc[0]["nome_exibicao"] or df.iloc[0]["usuario"]
+            nome = df.iloc[0]["nome_exibicao"] or df.iloc[0]["usuario"]
+            eh_admin = bool(df.iloc[0]["admin"])
+            return nome, eh_admin
     except Exception:
         pass
-    return None
+    return None, False
 
 
 def buscar_cnpj(cnpj: str):
@@ -304,14 +306,17 @@ if BANCO_OK and contar_usuarios() > 0 and not st.session_state.get("logado"):
         senha_login = st.text_input("Senha", type="password")
         entrar = st.form_submit_button("Entrar", type="primary")
     if entrar:
-        nome = autenticar(usuario_login, senha_login)
+        nome, eh_admin = autenticar(usuario_login, senha_login)
         if nome:
             st.session_state["logado"] = True
             st.session_state["usuario_logado"] = nome
+            st.session_state["admin"] = eh_admin
             st.rerun()
         else:
             st.error("Usuário ou senha incorretos.")
     st.stop()
+
+st.session_state.setdefault("admin", True)
 
 
 # ---------------------------------------------------------------------------
@@ -1399,6 +1404,10 @@ elif menu == "👥 Usuários":
         novo_usuario = st.text_input("Usuário (login)")
         novo_nome = st.text_input("Nome de exibição", "")
         nova_senha = st.text_input("Senha", type="password")
+        eh_admin_novo = st.checkbox(
+            "Administrador (vê o Dashboard e informações financeiras)",
+            value=(qtd_usuarios == 0),
+        )
         criar = st.form_submit_button("Criar usuário", type="primary")
 
     if criar:
@@ -1407,12 +1416,13 @@ elif menu == "👥 Usuários":
         else:
             try:
                 db.run(
-                    "INSERT INTO usuarios (usuario, senha_hash, nome_exibicao) "
-                    "VALUES (:usuario, :senha_hash, :nome_exibicao)",
+                    "INSERT INTO usuarios (usuario, senha_hash, nome_exibicao, admin) "
+                    "VALUES (:usuario, :senha_hash, :nome_exibicao, :admin)",
                     {
                         "usuario": novo_usuario.strip(),
                         "senha_hash": hash_senha(nova_senha),
                         "nome_exibicao": novo_nome or novo_usuario,
+                        "admin": eh_admin_novo,
                     },
                 )
                 st.success(f"Usuário '{novo_usuario}' criado!")
@@ -1424,9 +1434,22 @@ elif menu == "👥 Usuários":
     st.divider()
     st.subheader("Usuários cadastrados")
     try:
-        df_users = consultar("SELECT usuario, nome_exibicao FROM usuarios ORDER BY usuario")
+        df_users = consultar("SELECT usuario, nome_exibicao, admin FROM usuarios ORDER BY usuario")
         if not df_users.empty:
-            st.dataframe(df_users, use_container_width=True, hide_index=True)
+            for _, u in df_users.iterrows():
+                colu1, colu2, colu3 = st.columns([3, 2, 2])
+                colu1.write(f"**{u['usuario']}**")
+                colu2.write(u["nome_exibicao"])
+                if bool(u["admin"]):
+                    colu3.success("🔑 Administrador")
+                else:
+                    if colu3.button("Tornar administrador", key=f"promo_{u['usuario']}"):
+                        db.run(
+                            "UPDATE usuarios SET admin = :admin WHERE usuario = :usuario",
+                            {"admin": True, "usuario": u["usuario"]},
+                        )
+                        limpar_cache()
+                        st.rerun()
         else:
             st.info("Nenhum usuário cadastrado.")
     except Exception as e:
