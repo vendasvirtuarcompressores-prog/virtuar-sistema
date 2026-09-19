@@ -60,11 +60,25 @@ def processar_xml(caminho_xml):
         prod = det.find("nfe:prod", ns)
         if prod is None:
             continue
+
+        # Muitas NF-e trazem "SEM GTIN" em <cEAN> mas o código de barras real
+        # fica em <cEANTrib>. Usamos o primeiro campo que tiver um valor
+        # utilizável (não vazio e diferente de "SEM GTIN").
+        def _melhor_ean(*valores):
+            for v in valores:
+                v = (v or "").strip()
+                if v and v.upper() != "SEM GTIN":
+                    return v
+            return (valores[0] or "").strip() if valores else ""
+
+        cean = prod.findtext("nfe:cEAN", "", ns)
+        cean_trib = prod.findtext("nfe:cEANTrib", "", ns)
+
         itens.append(
             {
                 "codigo_prod": (prod.findtext("nfe:cProd", "", ns) or "").strip(),
                 "descricao": (prod.findtext("nfe:xProd", "", ns) or "").strip(),
-                "ean": (prod.findtext("nfe:cEAN", "", ns) or "").strip(),
+                "ean": _melhor_ean(cean, cean_trib),
                 "ncm": (prod.findtext("nfe:NCM", "", ns) or "").strip(),
                 "quantidade": float(prod.findtext("nfe:qCom", "0.0", ns) or 0),
                 "valor_unitario": float(prod.findtext("nfe:vUnCom", "0.0", ns) or 0),
