@@ -113,9 +113,37 @@ def init_schema():
             cep           TEXT,
             data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS vendas (
+            id             SERIAL PRIMARY KEY,
+            data_venda     TEXT,
+            descricao      TEXT,
+            quantidade     DOUBLE PRECISION,
+            valor_unitario DOUBLE PRECISION,
+            valor_total    DOUBLE PRECISION,
+            cliente        TEXT,
+            origem_cotacao INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS cotacoes (
+            id             SERIAL PRIMARY KEY,
+            numero_cotacao TEXT,
+            data_cotacao   TEXT,
+            cliente        TEXT,
+            cnpj_cliente   TEXT,
+            itens_json     TEXT,
+            valor_frete    DOUBLE PRECISION,
+            valor_total    DOUBLE PRECISION,
+            status         TEXT DEFAULT 'Enviada'
+        );
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id             SERIAL PRIMARY KEY,
+            usuario        TEXT UNIQUE,
+            senha_hash     TEXT,
+            nome_exibicao  TEXT
+        );
         CREATE INDEX IF NOT EXISTS idx_itens_descricao ON itens_nota(descricao);
         CREATE INDEX IF NOT EXISTS idx_itens_chave     ON itens_nota(chave_nfe);
         CREATE INDEX IF NOT EXISTS idx_nf_data         ON notas_fiscais(data_emissao);
+        CREATE INDEX IF NOT EXISTS idx_vendas_descricao ON vendas(descricao);
         """
     else:
         ddl = """
@@ -152,9 +180,37 @@ def init_schema():
             cep           TEXT,
             data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS vendas (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_venda     TEXT,
+            descricao      TEXT,
+            quantidade     REAL,
+            valor_unitario REAL,
+            valor_total    REAL,
+            cliente        TEXT,
+            origem_cotacao INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS cotacoes (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero_cotacao TEXT,
+            data_cotacao   TEXT,
+            cliente        TEXT,
+            cnpj_cliente   TEXT,
+            itens_json     TEXT,
+            valor_frete    REAL,
+            valor_total    REAL,
+            status         TEXT DEFAULT 'Enviada'
+        );
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario        TEXT UNIQUE,
+            senha_hash     TEXT,
+            nome_exibicao  TEXT
+        );
         CREATE INDEX IF NOT EXISTS idx_itens_descricao ON itens_nota(descricao);
         CREATE INDEX IF NOT EXISTS idx_itens_chave     ON itens_nota(chave_nfe);
         CREATE INDEX IF NOT EXISTS idx_nf_data         ON notas_fiscais(data_emissao);
+        CREATE INDEX IF NOT EXISTS idx_vendas_descricao ON vendas(descricao);
         """
 
     with engine.begin() as conn:

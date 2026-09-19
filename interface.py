@@ -5,14 +5,22 @@ configurado via Secrets/variável DATABASE_URL, ou SQLite local como
 fallback automático para rodar no seu PC sem configurar nada.
 """
 
+import hashlib
 import html
+import json
 import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
+
+try:
+    import requests
+except Exception:
+    requests = None
 
 import db
 
@@ -72,6 +80,27 @@ def limpar_cache():
 
 
 # ---------------------------------------------------------------------------
+# LOGIN (opcional): só é exigido depois que o primeiro usuário for criado
+# em "👥 Usuários". Antes disso, o app funciona exatamente como hoje.
+# ---------------------------------------------------------------------------
+if BANCO_OK and contar_usuarios() > 0 and not st.session_state.get("logado"):
+    st.title("🔒 VirtuAr - Login")
+    with st.form("login_form"):
+        usuario_login = st.text_input("Usuário")
+        senha_login = st.text_input("Senha", type="password")
+        entrar = st.form_submit_button("Entrar", type="primary")
+    if entrar:
+        nome = autenticar(usuario_login, senha_login)
+        if nome:
+            st.session_state["logado"] = True
+            st.session_state["usuario_logado"] = nome
+            st.rerun()
+        else:
+            st.error("Usuário ou senha incorretos.")
+    st.stop()
+
+
+# ---------------------------------------------------------------------------
 # UTILITÁRIOS
 # ---------------------------------------------------------------------------
 def limpar_nome_peca(nome):
@@ -125,6 +154,76 @@ SUPER_FRETE = [
     (90.0, 93.25), (100.0, 106.55), (125.0, 119.25), (150.0, 126.55),
     (float("inf"), 166.15),
 ]
+
+
+def hash_senha(senha: str) -> str:
+    return hashlib.sha256(senha.encode("utf-8")).hexdigest()
+
+
+def contar_usuarios() -> int:
+    try:
+        df = db.fetch_df("SELECT COUNT(*) AS qtd FROM usuarios")
+        return int(df.loc[0, "qtd"])
+    except Exception:
+        return 0
+
+
+def autenticar(usuario: str, senha: str):
+    try:
+        df = db.fetch_df(
+            "SELECT usuario, nome_exibicao FROM usuarios WHERE usuario = :u AND senha_hash = :h",
+            {"u": usuario.strip(), "h": hash_senha(senha)},
+        )
+        if not df.empty:
+            return df.iloc[0]["nome_exibicao"] or df.iloc[0]["usuario"]
+    except Exception:
+        pass
+    return None
+
+
+def buscar_cnpj(cnpj: str):
+    """Consulta dados públicos de um CNPJ via BrasilAPI. Retorna dict ou None."""
+    if requests is None:
+        return None
+    numeros = re.sub(r"\D", "", cnpj or "")
+    if len(numeros) != 14:
+        return None
+    try:
+        resp = requests.get(f"https://brasilapi.com.br/api/cnpj/v1/{numeros}", timeout=8)
+        if resp.status_code != 200:
+            return None
+        dado = resp.json()
+        endereco = f"{dado.get('logradouro', '')}, {dado.get('numero', '')} {dado.get('bairro', '')}".strip()
+        cidade_uf = f"{dado.get('municipio', '')} - {dado.get('uf', '')}".strip(" -")
+        return {
+            "nome": dado.get("razao_social") or dado.get("nome_fantasia") or "",
+            "endereco": endereco,
+            "cidade_uf": cidade_uf,
+            "cep": dado.get("cep", "") or "",
+            "telefone": dado.get("ddd_telefone_1", "") or "",
+        }
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def calcular_estoque() -> pd.DataFrame:
+    """Estoque = total comprado (itens_nota) - total vendido (vendas), por produto."""
+    comprado = db.fetch_df(
+        "SELECT descricao, SUM(quantidade) AS comprado FROM itens_nota GROUP BY descricao"
+    )
+    vendido = db.fetch_df(
+        "SELECT descricao, SUM(quantidade) AS vendido FROM vendas GROUP BY descricao"
+    )
+    if comprado.empty:
+        return pd.DataFrame(columns=["Produto", "Comprado", "Vendido", "Saldo"])
+    df = comprado.merge(vendido, on="descricao", how="left")
+    df["vendido"] = df["vendido"].fillna(0)
+    df["saldo"] = df["comprado"] - df["vendido"]
+    df["descricao"] = df["descricao"].apply(limpar_nome_peca)
+    df = df.rename(columns={"descricao": "Produto", "comprado": "Comprado",
+                             "vendido": "Vendido", "saldo": "Saldo"})
+    return df.sort_values("Saldo")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -181,12 +280,19 @@ menu = st.sidebar.radio(
         "📤 Upload de XML",
         "💰 Calculadora de Preços",
         "📄 Cotação / Orçamento",
+        "🗂️ Histórico de Cotações",
+        "📈 Registrar Venda",
+        "📦 Estoque",
+        "👥 Usuários",
     ],
 )
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Atualizar dados (limpar cache)"):
     limpar_cache()
+    st.rerun()
+if st.session_state.get("logado") and st.sidebar.button("🚪 Sair"):
+    st.session_state["logado"] = False
     st.rerun()
 
 if not BANCO_OK:
@@ -250,6 +356,31 @@ if menu == "📊 Dashboard Inicial":
             except Exception:
                 pass
             st.dataframe(df_ultimas, use_container_width=True, hide_index=True)
+
+        # --- Lucro real (precisa de vendas registradas em "📈 Registrar Venda") ---
+        df_vendas_mes = consultar(
+            "SELECT COALESCE(SUM(valor_total), 0) AS total FROM vendas "
+            "WHERE substr(data_venda, 1, 7) = :competencia",
+            {"competencia": competencia},
+        )
+        total_vendido_mes = float(df_vendas_mes.loc[0, "total"])
+        if total_vendido_mes > 0:
+            st.divider()
+            st.subheader("💵 Lucro do Mês (Vendas registradas)")
+            lucro_estimado = total_vendido_mes - total_gasto_mes
+            colv1, colv2, colv3 = st.columns(3)
+            colv1.metric("Vendido no Mês", moeda(total_vendido_mes))
+            colv2.metric("Comprado no Mês", moeda(total_gasto_mes))
+            colv3.metric("Lucro Bruto Estimado", moeda(lucro_estimado))
+            st.caption(
+                "Estimativa simples: total vendido menos total comprado no mês. "
+                "Não considera estoque de meses anteriores nem despesas fixas."
+            )
+        else:
+            st.info(
+                "💡 Registre suas vendas em '📈 Registrar Venda' para ver o lucro real aqui, "
+                "não só o gasto."
+            )
 
     except Exception as e:
         st.error(f"Erro ao carregar o dashboard: {e}")
@@ -526,15 +657,52 @@ elif menu == "📄 Cotação / Orçamento":
     num_oc = col_n2.text_input("📋 N° da Ordem de Compra (Cliente — opcional)", "")
 
     st.subheader("3. Dados do Cliente e Logística")
-    c1, c2, c3 = st.columns(3)
-    nome_cliente = c1.text_input("👤 Nome / Razão Social", v["nome"])
-    cnpj_cliente = c2.text_input("📄 CPF / CNPJ", v["cnpj"])
-    tel_cliente = c3.text_input("📞 Telefone / WhatsApp", v["tel"])
+
+    # Os campos usam chaves fixas para que a busca por CNPJ possa preenchê-los
+    # automaticamente. Ao trocar de cliente selecionado acima, reinicializa os valores.
+    if st.session_state.get("_ultimo_cliente_sel") != cliente_escolhido:
+        st.session_state["nome_cliente_input"] = v["nome"]
+        st.session_state["cnpj_cliente_input"] = v["cnpj"]
+        st.session_state["tel_cliente_input"] = v["tel"]
+        st.session_state["end_cliente_input"] = v["end"]
+        st.session_state["cid_cliente_input"] = v["cid"]
+        st.session_state["cep_cliente_input"] = v["cep"]
+        st.session_state["_ultimo_cliente_sel"] = cliente_escolhido
+
+    col_cnpj, col_btn = st.columns([4, 1])
+    col_cnpj.text_input("📄 CPF / CNPJ", key="cnpj_cliente_input")
+    with col_btn:
+        st.write("")
+        if st.button("🔎 Buscar CNPJ", use_container_width=True):
+            with st.spinner("Consultando dados públicos do CNPJ..."):
+                dados_cnpj = buscar_cnpj(st.session_state["cnpj_cliente_input"])
+            if dados_cnpj:
+                st.session_state["nome_cliente_input"] = dados_cnpj["nome"]
+                st.session_state["end_cliente_input"] = dados_cnpj["endereco"]
+                st.session_state["cid_cliente_input"] = dados_cnpj["cidade_uf"]
+                st.session_state["cep_cliente_input"] = dados_cnpj["cep"]
+                if dados_cnpj["telefone"]:
+                    st.session_state["tel_cliente_input"] = dados_cnpj["telefone"]
+                st.success("Dados preenchidos automaticamente!")
+                st.rerun()
+            else:
+                st.warning("CNPJ não encontrado ou serviço indisponível. Preencha manualmente.")
+
+    c1, c3 = st.columns(2)
+    c1.text_input("👤 Nome / Razão Social", key="nome_cliente_input")
+    c3.text_input("📞 Telefone / WhatsApp", key="tel_cliente_input")
 
     e1, e2, e3 = st.columns(3)
-    end_cliente = e1.text_input("🏠 Endereço", v["end"])
-    cid_cliente = e2.text_input("🏙️ Cidade / UF", v["cid"])
-    cep_cliente = e3.text_input("📮 CEP", v["cep"])
+    e1.text_input("🏠 Endereço", key="end_cliente_input")
+    e2.text_input("🏙️ Cidade / UF", key="cid_cliente_input")
+    e3.text_input("📮 CEP", key="cep_cliente_input")
+
+    nome_cliente = st.session_state["nome_cliente_input"]
+    cnpj_cliente = st.session_state["cnpj_cliente_input"]
+    tel_cliente = st.session_state["tel_cliente_input"]
+    end_cliente = st.session_state["end_cliente_input"]
+    cid_cliente = st.session_state["cid_cliente_input"]
+    cep_cliente = st.session_state["cep_cliente_input"]
 
     salvar_cliente_novo = st.checkbox(
         "💾 Salvar ou atualizar este cliente na base de dados", value=True
@@ -828,19 +996,298 @@ elif menu == "📄 Cotação / Orçamento":
                     saida = saida.encode("latin-1")
                 st.session_state["pdf_gerado"] = (bytes(saida), f"Orcamento_{num_cotacao}.pdf")
 
+                # --- Salva a cotação no histórico (tela "🗂️ Histórico de Cotações") ---
+                try:
+                    itens_para_salvar = [
+                        {k: v for k, v in item.items() if k != "uid"}
+                        for item in st.session_state["itens_orcamento"]
+                    ]
+                    db.run(
+                        """
+                        INSERT INTO cotacoes
+                            (numero_cotacao, data_cotacao, cliente, cnpj_cliente,
+                             itens_json, valor_frete, valor_total, status)
+                        VALUES
+                            (:numero_cotacao, :data_cotacao, :cliente, :cnpj_cliente,
+                             :itens_json, :valor_frete, :valor_total, 'Enviada')
+                        """,
+                        {
+                            "numero_cotacao": num_cotacao,
+                            "data_cotacao": datetime.now().strftime("%Y-%m-%d"),
+                            "cliente": nome_cliente,
+                            "cnpj_cliente": cnpj_cliente,
+                            "itens_json": json.dumps(itens_para_salvar, ensure_ascii=False),
+                            "valor_frete": valor_frete,
+                            "valor_total": total_geral,
+                        },
+                    )
+                    limpar_cache()
+                except Exception as e:
+                    st.warning(f"PDF gerado, mas não foi possível salvar no histórico: {e}")
+
             except Exception as e:
                 st.session_state["pdf_gerado"] = None
                 st.error(f"Erro ao gerar o PDF: {e}")
 
         if st.session_state["pdf_gerado"]:
             bytes_pdf, nome_arquivo = st.session_state["pdf_gerado"]
-            st.success("PDF pronto!")
-            st.download_button(
-                "📥 Baixar PDF da Cotação",
+            st.success("PDF pronto! (também salvo em '🗂️ Histórico de Cotações')")
+
+            colb1, colb2, colb3 = st.columns(3)
+            colb1.download_button(
+                "📥 Baixar PDF",
                 data=bytes_pdf,
                 file_name=nome_arquivo,
                 mime="application/pdf",
                 type="primary",
             )
+
+            texto_whats = (
+                f"Olá {nome_cliente}! Segue sua cotação {num_cotacao} da VirtuAr Compressores.\n"
+                f"Valor total: R$ {total_geral:,.2f}\n"
+                f"Validade: {validade_proposta}\n"
+                f"(O PDF está anexo separadamente)"
+            )
+            link_whats = f"https://wa.me/?text={quote(texto_whats)}"
+            colb2.link_button("📲 Enviar por WhatsApp", link_whats)
+            colb2.caption("Abre o WhatsApp com a mensagem pronta. Anexe o PDF baixado manualmente.")
+
+            assunto_email = quote(f"Cotação {num_cotacao} - VirtuAr Compressores")
+            corpo_email = quote(
+                f"Olá {nome_cliente},\n\nSegue sua cotação {num_cotacao}.\n"
+                f"Valor total: R$ {total_geral:,.2f}\nValidade: {validade_proposta}\n\n"
+                f"Atenciosamente,\n{vendedor}"
+            )
+            colb3.link_button(
+                "✉️ Enviar por E-mail",
+                f"mailto:?subject={assunto_email}&body={corpo_email}",
+            )
+            colb3.caption("Abre seu programa de e-mail. Anexe o PDF baixado manualmente.")
     else:
         st.info("Adicione ao menos um item para gerar a cotação.")
+
+# ===========================================================================
+# TELA 6: HISTÓRICO DE COTAÇÕES
+# ===========================================================================
+elif menu == "🗂️ Histórico de Cotações":
+    st.title("Histórico de Cotações")
+    st.write("Todas as cotações geradas ficam salvas aqui, mesmo depois de baixar o PDF.")
+
+    try:
+        df_cot = consultar(
+            "SELECT id, numero_cotacao, data_cotacao, cliente, valor_total, status "
+            "FROM cotacoes ORDER BY id DESC LIMIT 200"
+        )
+    except Exception as e:
+        st.error(f"Erro ao carregar histórico: {e}")
+        df_cot = pd.DataFrame()
+
+    if df_cot.empty:
+        st.info("Nenhuma cotação salva ainda. Gere uma em '📄 Cotação / Orçamento'.")
+    else:
+        total_cot = len(df_cot)
+        convertidas = int((df_cot["status"] == "Convertida em Venda").sum())
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Cotações Geradas", total_cot)
+        col2.metric("Convertidas em Venda", convertidas)
+        col3.metric(
+            "Taxa de Conversão",
+            f"{(convertidas / total_cot * 100):.0f}%" if total_cot else "0%",
+        )
+
+        st.divider()
+        for _, linha in df_cot.iterrows():
+            with st.expander(
+                f"{linha['numero_cotacao']} — {linha['cliente']} — "
+                f"{moeda(float(linha['valor_total'] or 0))} — [{linha['status']}]"
+            ):
+                st.write(f"**Data:** {linha['data_cotacao']}")
+                if linha["status"] != "Convertida em Venda":
+                    if st.button(
+                        "✅ Marcar como Convertida em Venda (registra a venda e baixa estoque)",
+                        key=f"conv_{linha['id']}",
+                    ):
+                        try:
+                            df_full = consultar(
+                                "SELECT itens_json, cliente FROM cotacoes WHERE id = :id",
+                                {"id": int(linha["id"])},
+                            )
+                            itens = json.loads(df_full.loc[0, "itens_json"])
+                            hoje = datetime.now().strftime("%Y-%m-%d")
+                            for item in itens:
+                                db.run(
+                                    """
+                                    INSERT INTO vendas
+                                        (data_venda, descricao, quantidade, valor_unitario,
+                                         valor_total, cliente, origem_cotacao)
+                                    VALUES
+                                        (:data_venda, :descricao, :quantidade, :valor_unitario,
+                                         :valor_total, :cliente, :origem_cotacao)
+                                    """,
+                                    {
+                                        "data_venda": hoje,
+                                        "descricao": item["produto"],
+                                        "quantidade": item["quantidade"],
+                                        "valor_unitario": item["preco_unitario"],
+                                        "valor_total": item["total"],
+                                        "cliente": df_full.loc[0, "cliente"],
+                                        "origem_cotacao": int(linha["id"]),
+                                    },
+                                )
+                            db.run(
+                                "UPDATE cotacoes SET status = 'Convertida em Venda' WHERE id = :id",
+                                {"id": int(linha["id"])},
+                            )
+                            limpar_cache()
+                            st.success("Convertida! Estoque e vendas atualizados.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao converter: {e}")
+                else:
+                    st.success("Já convertida em venda.")
+
+# ===========================================================================
+# TELA 7: REGISTRAR VENDA (manual, sem passar por cotação)
+# ===========================================================================
+elif menu == "📈 Registrar Venda":
+    st.title("Registrar Venda")
+    st.write("Use esta tela para vendas feitas fora de uma cotação formal (venda direta no balcão, por exemplo).")
+
+    mapa_v = mapa_produtos()
+    lista_prods_v = list(mapa_v.keys())
+
+    if not lista_prods_v:
+        st.info("Nenhum produto no histórico ainda. Importe XMLs primeiro.")
+    else:
+        col1, col2, col3 = st.columns(3)
+        produto_v = col1.selectbox("Produto", lista_prods_v, key="prod_venda")
+        qtd_v = col2.number_input("Quantidade", min_value=1, value=1, key="qtd_venda")
+
+        if st.session_state.get("_ultimo_prod_venda") != produto_v:
+            st.session_state["preco_venda"] = float(ultimo_custo(mapa_v[produto_v]))
+            st.session_state["_ultimo_prod_venda"] = produto_v
+        preco_v = col3.number_input(
+            "Preço Unit. de Venda (R$)", min_value=0.0, step=1.0, key="preco_venda"
+        )
+        cliente_v = st.text_input("Cliente (opcional)", "")
+        data_v = st.date_input("Data da Venda", value=datetime.now())
+
+        if st.button("💾 Registrar Venda", type="primary"):
+            try:
+                db.run(
+                    """
+                    INSERT INTO vendas (data_venda, descricao, quantidade, valor_unitario, valor_total, cliente)
+                    VALUES (:data_venda, :descricao, :quantidade, :valor_unitario, :valor_total, :cliente)
+                    """,
+                    {
+                        "data_venda": data_v.strftime("%Y-%m-%d"),
+                        "descricao": mapa_v[produto_v],
+                        "quantidade": qtd_v,
+                        "valor_unitario": preco_v,
+                        "valor_total": qtd_v * preco_v,
+                        "cliente": cliente_v,
+                    },
+                )
+                limpar_cache()
+                st.success(f"✅ Venda de {qtd_v}x {produto_v} registrada!")
+            except Exception as e:
+                st.error(f"Erro ao registrar venda: {e}")
+
+    st.divider()
+    st.subheader("Últimas vendas registradas")
+    try:
+        df_vendas = consultar(
+            "SELECT data_venda AS Data, descricao AS Produto, quantidade AS Qtd, "
+            "valor_unitario AS \"Preço Unit.\", valor_total AS Total, cliente AS Cliente "
+            "FROM vendas ORDER BY id DESC LIMIT 20"
+        )
+        if not df_vendas.empty:
+            df_vendas["Produto"] = df_vendas["Produto"].apply(limpar_nome_peca)
+            st.dataframe(df_vendas, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhuma venda registrada ainda.")
+    except Exception as e:
+        st.error(f"Erro ao carregar vendas: {e}")
+
+# ===========================================================================
+# TELA 8: ESTOQUE
+# ===========================================================================
+elif menu == "📦 Estoque":
+    st.title("Estoque")
+    st.write("Calculado como: total comprado (notas fiscais) − total vendido (vendas registradas).")
+    st.caption(
+        "⚠️ Só é preciso se todas as vendas forem registradas em '📈 Registrar Venda' "
+        "ou convertidas a partir de uma cotação."
+    )
+
+    limite_baixo = st.number_input("Avisar quando o saldo for menor ou igual a:", min_value=0, value=3)
+
+    try:
+        df_estoque = calcular_estoque()
+    except Exception as e:
+        st.error(f"Erro ao calcular estoque: {e}")
+        df_estoque = pd.DataFrame()
+
+    if df_estoque.empty:
+        st.info("Sem dados suficientes ainda. Importe XMLs e registre vendas.")
+    else:
+        baixos = df_estoque[df_estoque["Saldo"] <= limite_baixo]
+        if not baixos.empty:
+            st.warning(f"⚠️ {len(baixos)} produto(s) com estoque baixo (≤ {limite_baixo}):")
+            st.dataframe(baixos, use_container_width=True, hide_index=True)
+            st.divider()
+
+        st.subheader("Estoque completo")
+        st.dataframe(df_estoque, use_container_width=True, hide_index=True)
+
+# ===========================================================================
+# TELA 9: USUÁRIOS (login)
+# ===========================================================================
+elif menu == "👥 Usuários":
+    st.title("Usuários do Sistema")
+
+    qtd_usuarios = contar_usuarios()
+    if qtd_usuarios == 0:
+        st.info(
+            "Ainda não existe nenhum usuário cadastrado — o app está aberto para qualquer "
+            "pessoa com o link. Crie o primeiro usuário abaixo para ativar a tela de login."
+        )
+    else:
+        st.success(f"🔒 Login ativado — {qtd_usuarios} usuário(s) cadastrado(s).")
+
+    with st.form("novo_usuario_form"):
+        st.subheader("Adicionar novo usuário")
+        novo_usuario = st.text_input("Usuário (login)")
+        novo_nome = st.text_input("Nome de exibição", "")
+        nova_senha = st.text_input("Senha", type="password")
+        criar = st.form_submit_button("Criar usuário", type="primary")
+
+    if criar:
+        if not novo_usuario or not nova_senha:
+            st.warning("Preencha usuário e senha.")
+        else:
+            try:
+                db.run(
+                    "INSERT INTO usuarios (usuario, senha_hash, nome_exibicao) "
+                    "VALUES (:usuario, :senha_hash, :nome_exibicao)",
+                    {
+                        "usuario": novo_usuario.strip(),
+                        "senha_hash": hash_senha(nova_senha),
+                        "nome_exibicao": novo_nome or novo_usuario,
+                    },
+                )
+                st.success(f"Usuário '{novo_usuario}' criado!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Não foi possível criar (usuário já existe?): {e}")
+
+    st.divider()
+    st.subheader("Usuários cadastrados")
+    try:
+        df_users = consultar("SELECT usuario, nome_exibicao FROM usuarios ORDER BY usuario")
+        if not df_users.empty:
+            st.dataframe(df_users, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum usuário cadastrado.")
+    except Exception as e:
+        st.error(f"Erro ao listar usuários: {e}")
