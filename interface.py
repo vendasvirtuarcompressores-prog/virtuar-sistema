@@ -80,27 +80,6 @@ def limpar_cache():
 
 
 # ---------------------------------------------------------------------------
-# LOGIN (opcional): só é exigido depois que o primeiro usuário for criado
-# em "👥 Usuários". Antes disso, o app funciona exatamente como hoje.
-# ---------------------------------------------------------------------------
-if BANCO_OK and contar_usuarios() > 0 and not st.session_state.get("logado"):
-    st.title("🔒 VirtuAr - Login")
-    with st.form("login_form"):
-        usuario_login = st.text_input("Usuário")
-        senha_login = st.text_input("Senha", type="password")
-        entrar = st.form_submit_button("Entrar", type="primary")
-    if entrar:
-        nome = autenticar(usuario_login, senha_login)
-        if nome:
-            st.session_state["logado"] = True
-            st.session_state["usuario_logado"] = nome
-            st.rerun()
-        else:
-            st.error("Usuário ou senha incorretos.")
-    st.stop()
-
-
-# ---------------------------------------------------------------------------
 # UTILITÁRIOS
 # ---------------------------------------------------------------------------
 def limpar_nome_peca(nome):
@@ -250,6 +229,27 @@ def ultimo_custo(descricao_db: str) -> float:
     if df.empty or pd.isna(df.iloc[0, 0]):
         return 0.0
     return float(df.iloc[0, 0])
+
+
+# ---------------------------------------------------------------------------
+# LOGIN (opcional): só é exigido depois que o primeiro usuário for criado
+# em "👥 Usuários". Antes disso, o app funciona exatamente como hoje.
+# ---------------------------------------------------------------------------
+if BANCO_OK and contar_usuarios() > 0 and not st.session_state.get("logado"):
+    st.title("🔒 VirtuAr - Login")
+    with st.form("login_form"):
+        usuario_login = st.text_input("Usuário")
+        senha_login = st.text_input("Senha", type="password")
+        entrar = st.form_submit_button("Entrar", type="primary")
+    if entrar:
+        nome = autenticar(usuario_login, senha_login)
+        if nome:
+            st.session_state["logado"] = True
+            st.session_state["usuario_logado"] = nome
+            st.rerun()
+        else:
+            st.error("Usuário ou senha incorretos.")
+    st.stop()
 
 
 # ---------------------------------------------------------------------------
