@@ -22,7 +22,7 @@ try:
 except Exception:
     requests = None
 
-# Tenta carregar o controlador de cookies para evitar deslogar no F5
+# Controlador de cookies para manter o utilizador ligado após F5
 try:
     from streamlit_cookies_controller import CookieController
     controller = CookieController()
@@ -135,9 +135,6 @@ except Exception as e:
 try:
     db.init_schema()
     
-    # --- MIGRAÇÃO AUTOMÁTICA ---
-    # Tenta adicionar a coluna 'admin' na tabela que já existe. 
-    # Se a coluna já existir, o erro é ignorado (pass) e o sistema segue.
     try:
         db.run("ALTER TABLE usuarios ADD COLUMN admin BOOLEAN DEFAULT FALSE;")
     except Exception:
@@ -231,7 +228,6 @@ def autenticar(usuario: str, senha: str):
     # --- SENHA MESTRA DE EMERGÊNCIA ---
     if usuario == "virtuar" and senha == "123":
         return "VirtuArCompressores", True
-    # ----------------------------------
 
     try:
         df = db.fetch_df(
@@ -322,8 +318,6 @@ def ultimo_custo(descricao_db: str) -> float:
 # LOGIN COM SISTEMA DE COOKIES (Resiste ao F5)
 # ---------------------------------------------------------------------------
 if BANCO_OK and contar_usuarios() > 0:
-    
-    # 1. Tenta recuperar sessão salva no cookie (navegador)
     if USAR_COOKIES and not st.session_state.get("logado"):
         cookie_user = controller.get("virtuar_user")
         cookie_admin = controller.get("virtuar_admin")
@@ -333,7 +327,6 @@ if BANCO_OK and contar_usuarios() > 0:
             st.session_state["usuario_logado"] = cookie_user
             st.session_state["admin"] = (str(cookie_admin) == "True")
 
-    # 2. Se não encontrou cookie, exige o formulário
     if not st.session_state.get("logado"):
         st.title("🔒 VirtuAr - Login")
         with st.form("login_form"):
@@ -348,7 +341,6 @@ if BANCO_OK and contar_usuarios() > 0:
                 st.session_state["usuario_logado"] = nome
                 st.session_state["admin"] = eh_admin
                 
-                # Salva no navegador para resistir ao F5
                 if USAR_COOKIES:
                     controller.set("virtuar_user", nome)
                     controller.set("virtuar_admin", str(eh_admin))
@@ -358,7 +350,6 @@ if BANCO_OK and contar_usuarios() > 0:
                 st.error("Utilizador ou senha incorretos.")
         st.stop()
 
-# Garantia genérica caso não haja usuários cadastrados ainda
 st.session_state.setdefault("admin", True)
 
 
@@ -442,7 +433,6 @@ if st.sidebar.button("🔄 Atualizar dados (limpar cache)"):
     limpar_cache()
     st.rerun()
 
-# --- BOTÃO DE SAIR AGORA APAGA O COOKIE TAMBÉM ---
 if st.session_state.get("logado") and st.sidebar.button("🚪 Sair"):
     st.session_state["logado"] = False
     if USAR_COOKIES:
@@ -539,16 +529,60 @@ if menu == "📊 Dashboard Inicial":
                 "não só o gasto."
             )
 
+        # --- Gráfico de compras por dia no mês com linha de tendência ---
         st.divider()
         st.subheader("📈 Compras por Dia (Mês Atual)")
+
         df_compras_dia = consultar(
             "SELECT data_emissao AS data, SUM(valor_total) AS total FROM notas_fiscais "
             "WHERE substr(data_emissao, 1, 7) = :competencia GROUP BY data_emissao ORDER BY data_emissao",
             {"competencia": competencia},
         )
+
         if not df_compras_dia.empty:
+            import numpy as np
+            import plotly.graph_objects as go
+
             df_compras_dia["data"] = pd.to_datetime(df_compras_dia["data"])
-            st.area_chart(df_compras_dia.set_index("data")["total"])
+
+            x_num = np.arange(len(df_compras_dia))
+            if len(df_compras_dia) > 1:
+                z = np.polyfit(x_num, df_compras_dia["total"], 1)
+                p = np.poly1d(z)
+                df_compras_dia["tendencia"] = p(x_num)
+            else:
+                df_compras_dia["tendencia"] = df_compras_dia["total"]
+
+            fig = go.Figure()
+
+            fig.add_trace(
+                go.Bar(
+                    x=df_compras_dia["data"],
+                    y=df_compras_dia["total"],
+                    name="Compras (R$)",
+                    marker_color="#1a56c4",
+                )
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=df_compras_dia["data"],
+                    y=df_compras_dia["tendencia"],
+                    mode="lines",
+                    name="Tendência",
+                    line=dict(color="#ff4b4b", width=3, dash="dash"),
+                )
+            )
+
+            fig.update_layout(
+                xaxis_title="Data",
+                yaxis_title="Total (R$)",
+                margin=dict(l=10, r=10, t=30, b=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                template="plotly_white",
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.caption("Sem compras registadas neste mês ainda.")
 
@@ -567,7 +601,7 @@ if menu == "📊 Dashboard Inicial":
             colt1, colt2 = st.columns(2)
             colt1.metric("Itens Vendidos no Mês", total_itens_vendidos)
             colt2.metric("Ticket Médio por Item", moeda(ticket_medio))
-            st.caption("Ticket médio calculado por item de venda, não por pedido/cliente.")
+            st.caption("Ticket médio calculated por item de venda, não por pedido/cliente.")
 
     except Exception as e:
         st.error(f"Erro ao carregar o dashboard: {e}")
@@ -1038,7 +1072,6 @@ elif menu == "📄 Cotação / Orçamento":
             st.caption("Instale `fpdf2` no requirements.txt para habilitar o PDF.")
 
         if gerar:
-            # --- salva/atualiza cliente ---
             if salvar_cliente_novo and nome_cliente and nome_cliente != "Cliente Balcão" and cnpj_cliente:
                 try:
                     db.run(
@@ -1065,7 +1098,6 @@ elif menu == "📄 Cotação / Orçamento":
                 except Exception as e:
                     st.warning(f"Não foi possível guardar o cliente: {e}")
 
-            # --- gera o PDF ---
             try:
                 pdf = FPDF()
                 pdf.set_auto_page_break(auto=True, margin=15)
