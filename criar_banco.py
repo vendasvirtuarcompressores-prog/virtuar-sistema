@@ -62,10 +62,10 @@ def processar_xml(caminho_xml):
             continue
         itens.append(
             {
-                "codigo_prod": prod.findtext("nfe:cProd", "", ns),
+                "codigo_prod": (prod.findtext("nfe:cProd", "", ns) or "").strip(),
                 "descricao": (prod.findtext("nfe:xProd", "", ns) or "").strip(),
-                "ean": prod.findtext("nfe:cEAN", "", ns),
-                "ncm": prod.findtext("nfe:NCM", "", ns),
+                "ean": (prod.findtext("nfe:cEAN", "", ns) or "").strip(),
+                "ncm": (prod.findtext("nfe:NCM", "", ns) or "").strip(),
                 "quantidade": float(prod.findtext("nfe:qCom", "0.0", ns) or 0),
                 "valor_unitario": float(prod.findtext("nfe:vUnCom", "0.0", ns) or 0),
                 "valor_total": float(prod.findtext("nfe:vProd", "0.0", ns) or 0),

@@ -276,6 +276,38 @@ def buscar_cnpj(cnpj: str):
         return None
 
 
+def buscar_produto_por_codigo(code_raw: str) -> pd.DataFrame:
+    """Busca flexível por SKU do fornecedor ou Código de Barras (EAN).
+    Remove espaços, quebras de linha e zeros à esquerda.
+    """
+    if not code_raw:
+        return pd.DataFrame()
+        
+    code = str(code_raw).strip()
+    code_sem_zero = code.lstrip("0")
+    code_like = f"%{code}%"
+
+    query = """
+        SELECT i.descricao, i.valor_unitario
+        FROM itens_nota i
+        WHERE TRIM(REPLACE(REPLACE(i.codigo_prod, CHAR(13), ''), CHAR(10), '')) = :code
+           OR TRIM(REPLACE(REPLACE(i.ean, CHAR(13), ''), CHAR(10), '')) = :code
+           OR LTRIM(TRIM(i.codigo_prod), '0') = :code_sem_zero
+           OR LTRIM(TRIM(i.ean), '0') = :code_sem_zero
+           OR i.codigo_prod LIKE :code_like
+           OR i.ean LIKE :code_like
+        ORDER BY i.id DESC LIMIT 1
+    """
+    return db.fetch_df(
+        query,
+        {
+            "code": code,
+            "code_sem_zero": code_sem_zero if code_sem_zero else code,
+            "code_like": code_like,
+        },
+    )
+
+
 @st.cache_data(ttl=120, show_spinner=False)
 def calcular_estoque() -> pd.DataFrame:
     comprado = db.fetch_df(
@@ -608,7 +640,7 @@ if menu == "📊 Dashboard Inicial":
             colt1, colt2 = st.columns(2)
             colt1.metric("Itens Vendidos no Mês", total_itens_vendidos)
             colt2.metric("Ticket Médio por Item", moeda(ticket_medio))
-            st.caption("Ticket médio calculado por item de venda, não por pedido/cliente.")
+            st.caption("Ticket médio calculated por item de venda, não por pedido/cliente.")
 
     except Exception as e:
         st.error(f"Erro ao carregar o dashboard: {e}")
@@ -856,15 +888,7 @@ elif menu == "📄 Cotação / Orçamento":
     def bipar_item_orcamento():
         code = st.session_state.get("input_bip_orc", "").strip()
         if code:
-            df = db.fetch_df(
-                """
-                SELECT i.descricao, i.valor_unitario
-                FROM itens_nota i
-                WHERE UPPER(i.codigo_prod) = :code OR UPPER(i.ean) = :code
-                ORDER BY i.id DESC LIMIT 1
-                """,
-                {"code": code.upper()},
-            )
+            df = buscar_produto_por_codigo(code)
             if not df.empty:
                 prod = df.loc[0, "descricao"]
                 preco = float(df.loc[0, "valor_unitario"])
@@ -1443,15 +1467,7 @@ elif menu == "📈 Registar Venda":
         code_venda = st.text_input("📍 Código de Barras / SKU Fornecedor", key="input_bip_venda_direta")
 
         if code_venda:
-            df_match = consultar(
-                """
-                SELECT i.descricao, i.valor_unitario 
-                FROM itens_nota i 
-                WHERE UPPER(i.codigo_prod) = :code OR UPPER(i.ean) = :code
-                ORDER BY i.id DESC LIMIT 1
-                """,
-                {"code": code_venda.strip().upper()}
-            )
+            df_match = buscar_produto_por_codigo(code_venda)
             if not df_match.empty:
                 produto_selecionado_desc = df_match.loc[0, "descricao"]
                 preco_sugerido_venda = float(df_match.loc[0, "valor_unitario"])
@@ -1466,7 +1482,7 @@ elif menu == "📈 Registar Venda":
                 produto_selecionado_desc = mapa_v[prod_manual]
                 preco_sugerido_venda = float(ultimo_custo(produto_selecionado_desc))
         else:
-            st.info("Nenhum produto cadastrado no histórico.")
+            st.info("Nenum produto cadastrado no histórico.")
 
     st.divider()
     st.subheader("Confirmar Registo da Venda")
