@@ -29,6 +29,68 @@ import db
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="VirtuAr - Gestão de Compras e Orçamentos", layout="wide")
 
+# ---------------------------------------------------------------------------
+# IDENTIDADE VISUAL — cores, fontes e cards no padrão VirtuAr
+# ---------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+
+    html, body, [class*="css"]  { font-family: 'Inter', sans-serif; }
+
+    /* Cabeçalho de cada título de tela */
+    h1 {
+        color: #0b2e6b;
+        font-weight: 800 !important;
+        border-bottom: 3px solid #1a56c4;
+        padding-bottom: 0.4rem;
+        margin-bottom: 1.2rem !important;
+    }
+    h2, h3 { color: #0b2e6b; font-weight: 700 !important; }
+
+    /* Cards de métricas (st.metric) com sombra e destaque */
+    div[data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #e3e8f0;
+        border-left: 5px solid #1a56c4;
+        border-radius: 10px;
+        padding: 14px 18px 10px 18px;
+        box-shadow: 0 2px 6px rgba(16, 24, 40, 0.06);
+    }
+    div[data-testid="stMetricLabel"] { color: #667085; font-weight: 600; }
+    div[data-testid="stMetricValue"] { color: #0b2e6b; font-weight: 800; }
+
+    /* Botões primários com a cor da marca */
+    button[kind="primary"] {
+        background-color: #1a56c4 !important;
+        border-radius: 8px !important;
+        font-weight: 700 !important;
+    }
+
+    /* Sidebar com fundo levemente diferenciado */
+    section[data-testid="stSidebar"] {
+        background-color: #f4f6fa;
+        border-right: 1px solid #e3e8f0;
+    }
+
+    /* Cabeçalhos de expander (categorias do menu) com destaque de marca */
+    section[data-testid="stSidebar"] details summary {
+        font-weight: 700;
+        color: #0b2e6b;
+    }
+
+    /* Tabelas com cabeçalho mais forte */
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #e3e8f0;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 BASE_DIR = Path(__file__).resolve().parent
 
 # ---------------------------------------------------------------------------
@@ -259,12 +321,27 @@ logo_path = BASE_DIR / "logo.png"
 if logo_path.exists():
     st.sidebar.image(str(logo_path), use_container_width=True)
 else:
-    st.sidebar.markdown("### VirtuAr Compressores")
+    st.sidebar.markdown(
+        "<h2 style='color:#0b2e6b; margin-bottom:0;'>VirtuAr</h2>"
+        "<p style='color:#667085; margin-top:0;'>Compressores e Lavadoras</p>",
+        unsafe_allow_html=True,
+    )
 
-st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "<hr style='margin:8px 0; border-color:#e3e8f0;'>", unsafe_allow_html=True
+)
 
 st.session_state.setdefault("usuario_logado", "VirtuAr (Equipe)")
-st.sidebar.success(f"👤 Conectado como: **{st.session_state['usuario_logado']}**")
+st.sidebar.markdown(
+    f"""
+    <div style='background:#eaf1fd; border-left:4px solid #1a56c4; border-radius:6px;
+                padding:8px 12px; margin-bottom:8px;'>
+        <span style='color:#667085; font-size:0.8em;'>CONECTADO COMO</span><br>
+        <span style='color:#0b2e6b; font-weight:700;'>{st.session_state['usuario_logado']}</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 st.sidebar.caption(
     "🟢 Banco: Postgres (persistente)" if db.IS_POSTGRES
